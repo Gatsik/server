@@ -45,6 +45,7 @@ class SessionManager:
     &#34;&#34;&#34;
     Garantor for API access
     &#34;&#34;&#34;
+
     def __init__(self):
         self.session = None  # Instance of session
 
@@ -148,7 +149,8 @@ class ApiAccessor:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class ApiAccessor:
+<pre><code class="python">@with_logger
+class ApiAccessor:
     def __init__(self):
         self.api_session = SessionManager()
 
@@ -285,10 +287,12 @@ class ApiAccessor:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class SessionManager:
+<pre><code class="python">@with_logger
+class SessionManager:
     &#34;&#34;&#34;
     Garantor for API access
     &#34;&#34;&#34;
+
     def __init__(self):
         self.session = None  # Instance of session
 

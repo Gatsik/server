@@ -45,8 +45,8 @@ from hashlib import md5
 from typing import Optional
 
 import aiohttp
-import pymysql
 from sqlalchemy import and_, func, select
+from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 
 import server.metrics as metrics
 from server.db import FAFDatabase
@@ -70,6 +70,7 @@ from .games import (
     CoopGame,
     CustomGame,
     FeaturedModType,
+    Game,
     GameConnectionState,
     GameState,
     InitMode,
@@ -115,11 +116,11 @@ class LobbyConnection:
         self.rating_service = rating_service
         self.oauth_service = oauth_service
         self._authenticated = False
-        self.player = None  # type: Player
-        self.game_connection = None  # type: GameConnection
-        self.peer_address = None  # type: Optional[Address]
+        self.player: Optional[Player] = None
+        self.game_connection: Optional[GameConnection] = None
+        self.peer_address: Optional[Address] = None
         self.session = int(random.randrange(0, 4294967295))
-        self.protocol: Protocol = None
+        self.protocol: Optional[Protocol] = None
         self.user_agent = None
         self.version = None
 
@@ -240,11 +241,10 @@ class LobbyConnection:
         raise ClientError(&#34;FAF no longer supports direct registration. Please use the website to register.&#34;, recoverable=True)
 
     async def command_coop_list(self, message):
-        &#34;&#34;&#34; Request for coop map list&#34;&#34;&#34;
+        &#34;&#34;&#34;Request for coop map list&#34;&#34;&#34;
         async with self._db.acquire() as conn:
-            result = await conn.execute(select([coop_map]))
+            result = await conn.stream(select([coop_map]))
 
-            maps = []
             campaigns = [
                 &#34;FA Campaign&#34;,
                 &#34;Aeon Vanilla Campaign&#34;,
@@ -253,23 +253,20 @@ class LobbyConnection:
                 &#34;Custom Missions&#34;
             ]
             async for row in result:
-                json_to_send = {
-                    &#34;command&#34;: &#34;coop_info&#34;,
-                    &#34;name&#34;: row[&#34;name&#34;],
-                    &#34;description&#34;: row[&#34;description&#34;],
-                    &#34;filename&#34;: row[&#34;filename&#34;],
-                    &#34;featured_mod&#34;: &#34;coop&#34;
-                }
-                if row[&#34;type&#34;] &lt; len(campaigns):
-                    json_to_send[&#34;type&#34;] = campaigns[row[&#34;type&#34;]]
-                else:
+                if row.type &gt;= len(campaigns):
                     # Don&#39;t sent corrupt data to the client...
-                    self._logger.error(&#34;Unknown coop type!&#34;)
+                    self._logger.error(&#34;Unknown coop type! %s&#34;, row.type)
                     continue
-                json_to_send[&#34;uid&#34;] = row[&#34;id&#34;]
-                maps.append(json_to_send)
 
-        await self.protocol.send_messages(maps)
+                await self.send({
+                    &#34;command&#34;: &#34;coop_info&#34;,
+                    &#34;uid&#34;: row.id,
+                    &#34;type&#34;: campaigns[row.type],
+                    &#34;name&#34;: row.name,
+                    &#34;description&#34;: row.description,
+                    &#34;filename&#34;: row.filename,
+                    &#34;featured_mod&#34;: &#34;coop&#34;
+                })
 
     async def command_matchmaker_info(self, message):
         await self.send({
@@ -423,33 +420,42 @@ class LobbyConnection:
 
         auth_method = &#34;password&#34;
         auth_error_message = &#34;Login not found or password incorrect. They are case sensitive.&#34;
-        row = await result.fetchone()
+        row = result.fetchone()
         if not row:
             raise AuthenticationError(auth_error_message, auth_method)
 
-        player_id = row[t_login.c.id]
-        real_username = row[t_login.c.login]
-        dbPassword = row[t_login.c.password]
-        steamid = row[t_login.c.steamid]
-        create_time = row[t_login.c.create_time]
-        ban_reason = row[lobby_ban.c.reason]
-        ban_expiry = row[lobby_ban.c.expires_at]
+        player_id = row.id
+        real_username = row.login
+        dbPassword = row.password
+        steamid = row.steamid
+        create_time = row.create_time
+        ban_reason = row.reason
+        ban_expiry = row.expires_at
 
         if dbPassword != password:
             raise AuthenticationError(auth_error_message, auth_method)
 
         now = datetime.utcnow()
         if ban_reason is not None and now &lt; ban_expiry:
-            self._logger.debug(&#34;Rejected login from banned user: %s, %s, %s&#34;,
-                               player_id, username, self.session)
+            self._logger.debug(
+                &#34;Rejected login from banned user: %s, %s, %s&#34;,
+                player_id, username, self.session
+            )
             raise BanError(ban_expiry, ban_reason)
 
         # New accounts are prevented from playing if they didn&#39;t link to steam
 
         if config.FORCE_STEAM_LINK and not steamid and create_time.timestamp() &gt; config.FORCE_STEAM_LINK_AFTER_DATE:
-            self._logger.debug(&#34;Rejected login from new user: %s, %s, %s&#34;, player_id, username, self.session)
+            self._logger.debug(
+                &#34;Rejected login from new user: %s, %s, %s&#34;,
+                player_id, username, self.session
+            )
             raise ClientError(
-                &#39;Unfortunately, you must currently link your account to Steam in order to play Forged Alliance Forever. You can do so on &lt;a href=&#34;{steamlink_url}&#34;&gt;{steamlink_url}&lt;/a&gt;.&#39;.format(steamlink_url=config.WWW_URL + &#34;/account/link&#34;),
+                &#34;Unfortunately, you must currently link your account to Steam &#34;
+                &#34;in order to play Forged Alliance Forever. You can do so on &#34;
+                &#39;&lt;a href=&#34;{steamlink_url}&#34;&gt;{steamlink_url}&lt;/a&gt;.&#39;.format(
+                    steamlink_url=config.WWW_URL + &#34;/account/link&#34;
+                ),
                 recoverable=False)
 
         return player_id, real_username, steamid
@@ -544,7 +550,7 @@ class LobbyConnection:
                             level=ban_level,
                         )
                     )
-                except pymysql.MySQLError as e:
+                except DBAPIError as e:
                     raise ClientError(f&#34;Banning failed: {e}&#34;)
 
             return False
@@ -562,7 +568,7 @@ class LobbyConnection:
                 select([t_login.c.login, t_login.c.steamid])
                 .where(t_login.c.id == player_id)
             )
-            row = await result.fetchone()
+            row = result.fetchone()
 
             if not row:
                 self._logger.warning(&#34;User id not found in database possible fraudulent token: %s&#34;, player_id)
@@ -698,7 +704,7 @@ class LobbyConnection:
                 )
             )
 
-            async for row in result:
+            for row in result:
                 target_id, status = row[&#34;subject_id&#34;], row[&#34;status&#34;]
                 if status == &#34;FRIEND&#34;:
                     friends.append(target_id)
@@ -735,10 +741,12 @@ class LobbyConnection:
 
         try:
             await conn.execute(
-                &#34;UPDATE anope.anope_db_NickCore SET pass = %s WHERE display = %s&#34;,
-                (irc_pass, login)
+                &#34;UPDATE anope.anope_db_NickCore &#34;
+                &#34;SET pass = :passwd WHERE display = :display&#34;,
+                passwd=irc_pass,
+                display=login
             )
-        except (pymysql.OperationalError, pymysql.ProgrammingError):
+        except (OperationalError, ProgrammingError):
             self._logger.error(&#34;Failure updating NickServ password for %s&#34;, login)
 
     async def command_restore_game_session(self, message):
@@ -782,8 +790,6 @@ class LobbyConnection:
         action = message[&#34;action&#34;]
 
         if action == &#34;list_avatar&#34;:
-            avatarList = []
-
             async with self._db.acquire() as conn:
                 result = await conn.execute(
                     select([
@@ -798,12 +804,13 @@ class LobbyConnection:
                     )
                 )
 
-                async for row in result:
-                    avatar = {&#34;url&#34;: row[&#34;url&#34;], &#34;tooltip&#34;: row[&#34;tooltip&#34;]}
-                    avatarList.append(avatar)
-
-                if avatarList:
-                    await self.send({&#34;command&#34;: &#34;avatar&#34;, &#34;avatarlist&#34;: avatarList})
+                await self.send({
+                    &#34;command&#34;: &#34;avatar&#34;,
+                    &#34;avatarlist&#34;: [
+                        {&#34;url&#34;: row.url, &#34;tooltip&#34;: row.tooltip}
+                        for row in result
+                    ]
+                })
 
         elif action == &#34;select&#34;:
             avatar_url = message[&#34;avatar&#34;]
@@ -822,7 +829,7 @@ class LobbyConnection:
                             )
                         )
                     )
-                    row = await result.fetchone()
+                    row = result.fetchone()
                     if not row:
                         return
 
@@ -840,7 +847,7 @@ class LobbyConnection:
                         avatars.update().where(
                             and_(
                                 avatars.c.idUser == self.player.id,
-                                avatars.c.idAvatar == row[avatars_list.c.id]
+                                avatars.c.idAvatar == row.id
                             )
                         ).values(
                             selected=1
@@ -848,7 +855,7 @@ class LobbyConnection:
                     )
                     self.player.avatar = {
                         &#34;url&#34;: avatar_url,
-                        &#34;tooltip&#34;: row[avatars_list.c.tooltip]
+                        &#34;tooltip&#34;: row.tooltip
                     }
                 self.player_service.mark_dirty(self.player)
         else:
@@ -1033,15 +1040,49 @@ class LobbyConnection:
 
     async def launch_game(
         self,
-        game,
-        is_host=False,
-        options=GameLaunchOptions(),
-    ):
-        assert self.player is not None
-        # TODO: Fix setting up a ridiculous amount of cyclic pointers here
+        game: Game,
+        is_host: bool = False,
+        options: GameLaunchOptions = GameLaunchOptions(),
+    ) -&gt; None:
         if self.game_connection:
             await self.game_connection.abort(&#34;Player launched a new game&#34;)
+            self.game_connection = None
 
+        await self.send(self._prepare_launch_game(
+            game,
+            is_host=is_host,
+            options=options
+        ))
+
+    def write_launch_game(
+        self,
+        game: Game,
+        is_host: bool = False,
+        options: GameLaunchOptions = GameLaunchOptions(),
+    ) -&gt; None:
+        if self.game_connection is not None:
+            self._logger.warning(
+                &#34;%s launched a new game while old GameConnection was active&#34;,
+                self.player
+            )
+            self.game_connection = None
+
+        self.write(self._prepare_launch_game(
+            game,
+            is_host=is_host,
+            options=options
+        ))
+
+    def _prepare_launch_game(
+        self,
+        game: Game,
+        is_host: bool = False,
+        options: GameLaunchOptions = GameLaunchOptions(),
+    ):
+        assert self.player is not None
+        assert self.game_connection is None
+
+        # TODO: Fix setting up a ridiculous amount of cyclic pointers here
         if is_host:
             game.host = self.player
 
@@ -1054,7 +1095,6 @@ class LobbyConnection:
             games=self.game_service
         )
 
-        self.player.state = PlayerState.HOSTING if is_host else PlayerState.JOINING
         self.player.game = game
         cmd = {
             &#34;command&#34;: &#34;game_launch&#34;,
@@ -1067,12 +1107,14 @@ class LobbyConnection:
             # options are. Currently, options for ladder are hardcoded into the
             # client.
             &#34;name&#34;: game.name,
+            # DEPRICATED: init_mode can be inferred from game_type
             &#34;init_mode&#34;: game.init_mode.value,
+            &#34;game_type&#34;: game.game_type.value,
             &#34;rating_type&#34;: game.rating_type,
             **options._asdict()
         }
 
-        await self.send({k: v for k, v in cmd.items() if v is not None})
+        return {k: v for k, v in cmd.items() if v is not None}
 
     async def command_modvault(self, message):
         type = message[&#34;type&#34;]
@@ -1081,7 +1123,7 @@ class LobbyConnection:
             if type == &#34;start&#34;:
                 result = await conn.execute(&#34;SELECT uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon FROM table_mod ORDER BY likes DESC LIMIT 100&#34;)
 
-                async for row in result:
+                for row in result:
                     uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon = (row[i] for i in range(12))
                     try:
                         link = urllib.parse.urljoin(config.CONTENT_URL, &#34;faf/vault/&#34; + filename)
@@ -1094,15 +1136,20 @@ class LobbyConnection:
                                    downloads=downloads, date=int(date.timestamp()), uid=uid, name=name, version=version, author=author,
                                    ui=ui)
                         await self.send(out)
-                    except:
+                    except Exception:
                         self._logger.error(f&#34;Error handling table_mod row (uid: {uid})&#34;, exc_info=True)
 
             elif type == &#34;like&#34;:
                 canLike = True
                 uid = message[&#34;uid&#34;]
-                result = await conn.execute(&#34;SELECT uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon, likers FROM `table_mod` WHERE uid = %s LIMIT 1&#34;, (uid,))
+                result = await conn.execute(
+                    &#34;SELECT uid, name, version, author, ui, date, downloads, &#34;
+                    &#34;likes, played, description, filename, icon, likers FROM &#34;
+                    &#34;`table_mod` WHERE uid = :uid LIMIT 1&#34;,
+                    uid=uid
+                )
 
-                row = await result.fetchone()
+                row = result.fetchone()
                 uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon, likerList = (row[i] for i in range(13))
                 link = urllib.parse.urljoin(config.CONTENT_URL, &#34;faf/vault/&#34; + filename)
                 thumbstr = &#34;&#34;
@@ -1120,7 +1167,7 @@ class LobbyConnection:
                         canLike = False
                     else:
                         likers.append(self.player.id)
-                except:
+                except Exception:
                     likers = []
 
                 # TODO: Avoid sending all the mod info in the world just because we liked it?
@@ -1128,8 +1175,10 @@ class LobbyConnection:
                     await conn.execute(
                         &#34;UPDATE mod_stats s &#34;
                         &#34;JOIN mod_version v ON v.mod_id = s.mod_id &#34;
-                        &#34;SET s.likes = s.likes + 1, likers=%s WHERE v.uid = %s&#34;,
-                        json.dumps(likers), uid)
+                        &#34;SET s.likes = s.likes + 1, likers=:l WHERE v.uid=:id&#34;,
+                        l=json.dumps(likers),
+                        id=uid
+                    )
                     await self.send(out)
 
             elif type == &#34;download&#34;:
@@ -1269,16 +1318,18 @@ class LobbyConnection:
                 .where(lobby_ban.c.idUser == self.player.id)
                 .order_by(lobby_ban.c.expires_at.desc())
             )
+            row = result.fetchone()
 
-            data = await result.fetchone()
-            if data is None:
+            if row is None:
                 return
 
-            ban_expiry = data[ban.c.expires_at]
-            ban_reason = data[ban.c.reason]
+            ban_expiry = row.expires_at
+            ban_reason = row.reason
             if now &lt; ban_expiry:
-                self._logger.debug(&#34;Aborting connection of banned user: %s, %s, %s&#34;,
-                                   self.player.id, self.player.login, self.session)
+                self._logger.debug(
+                    &#34;Aborting connection of banned user: %s, %s, %s&#34;,
+                    self.player.id, self.player.login, self.session
+                )
                 raise BanError(ban_expiry, ban_reason)</code></pre>
 </details>
 </section>
@@ -1293,7 +1344,7 @@ class LobbyConnection:
 <dl>
 <dt id="server.lobbyconnection.LobbyConnection"><code class="flex name class">
 <span>class <span class="ident">LobbyConnection</span></span>
-<span>(</span><span>database: <a title="server.db.FAFDatabase" href="db/index.html#server.db.FAFDatabase">FAFDatabase</a>, game_service: <a title="server.game_service.GameService" href="game_service.html#server.game_service.GameService">GameService</a>, players: <a title="server.player_service.PlayerService" href="player_service.html#server.player_service.PlayerService">PlayerService</a>, nts_client: Optional[<a title="server.ice_servers.nts.TwilioNTS" href="ice_servers/nts.html#server.ice_servers.nts.TwilioNTS">TwilioNTS</a>], geoip: <a title="server.geoip_service.GeoIpService" href="geoip_service.html#server.geoip_service.GeoIpService">GeoIpService</a>, ladder_service: <a title="server.ladder_service.LadderService" href="ladder_service.html#server.ladder_service.LadderService">LadderService</a>, party_service: <a title="server.party_service.PartyService" href="party_service.html#server.party_service.PartyService">PartyService</a>, rating_service: <a title="server.rating_service.rating_service.RatingService" href="rating_service/rating_service.html#server.rating_service.rating_service.RatingService">RatingService</a>, oauth_service: <a title="server.oauth_service.OAuthService" href="oauth_service.html#server.oauth_service.OAuthService">OAuthService</a>)</span>
+<span>(</span><span>database: <a title="server.db.FAFDatabase" href="db/index.html#server.db.FAFDatabase">FAFDatabase</a>, game_service: <a title="server.game_service.GameService" href="game_service.html#server.game_service.GameService">GameService</a>, players: <a title="server.player_service.PlayerService" href="player_service.html#server.player_service.PlayerService">PlayerService</a>, nts_client: Optional[<a title="server.ice_servers.nts.TwilioNTS" href="ice_servers/nts.html#server.ice_servers.nts.TwilioNTS">TwilioNTS</a>], geoip: <a title="server.geoip_service.GeoIpService" href="geoip_service.html#server.geoip_service.GeoIpService">GeoIpService</a>, ladder_service: <a title="server.ladder_service.ladder_service.LadderService" href="ladder_service/ladder_service.html#server.ladder_service.ladder_service.LadderService">LadderService</a>, party_service: <a title="server.party_service.PartyService" href="party_service.html#server.party_service.PartyService">PartyService</a>, rating_service: <a title="server.rating_service.rating_service.RatingService" href="rating_service/rating_service.html#server.rating_service.rating_service.RatingService">RatingService</a>, oauth_service: <a title="server.oauth_service.OAuthService" href="oauth_service.html#server.oauth_service.OAuthService">OAuthService</a>)</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -1301,7 +1352,8 @@ class LobbyConnection:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class LobbyConnection:
+<pre><code class="python">@with_logger
+class LobbyConnection:
     @timed()
     def __init__(
         self,
@@ -1326,11 +1378,11 @@ class LobbyConnection:
         self.rating_service = rating_service
         self.oauth_service = oauth_service
         self._authenticated = False
-        self.player = None  # type: Player
-        self.game_connection = None  # type: GameConnection
-        self.peer_address = None  # type: Optional[Address]
+        self.player: Optional[Player] = None
+        self.game_connection: Optional[GameConnection] = None
+        self.peer_address: Optional[Address] = None
         self.session = int(random.randrange(0, 4294967295))
-        self.protocol: Protocol = None
+        self.protocol: Optional[Protocol] = None
         self.user_agent = None
         self.version = None
 
@@ -1451,11 +1503,10 @@ class LobbyConnection:
         raise ClientError(&#34;FAF no longer supports direct registration. Please use the website to register.&#34;, recoverable=True)
 
     async def command_coop_list(self, message):
-        &#34;&#34;&#34; Request for coop map list&#34;&#34;&#34;
+        &#34;&#34;&#34;Request for coop map list&#34;&#34;&#34;
         async with self._db.acquire() as conn:
-            result = await conn.execute(select([coop_map]))
+            result = await conn.stream(select([coop_map]))
 
-            maps = []
             campaigns = [
                 &#34;FA Campaign&#34;,
                 &#34;Aeon Vanilla Campaign&#34;,
@@ -1464,23 +1515,20 @@ class LobbyConnection:
                 &#34;Custom Missions&#34;
             ]
             async for row in result:
-                json_to_send = {
-                    &#34;command&#34;: &#34;coop_info&#34;,
-                    &#34;name&#34;: row[&#34;name&#34;],
-                    &#34;description&#34;: row[&#34;description&#34;],
-                    &#34;filename&#34;: row[&#34;filename&#34;],
-                    &#34;featured_mod&#34;: &#34;coop&#34;
-                }
-                if row[&#34;type&#34;] &lt; len(campaigns):
-                    json_to_send[&#34;type&#34;] = campaigns[row[&#34;type&#34;]]
-                else:
+                if row.type &gt;= len(campaigns):
                     # Don&#39;t sent corrupt data to the client...
-                    self._logger.error(&#34;Unknown coop type!&#34;)
+                    self._logger.error(&#34;Unknown coop type! %s&#34;, row.type)
                     continue
-                json_to_send[&#34;uid&#34;] = row[&#34;id&#34;]
-                maps.append(json_to_send)
 
-        await self.protocol.send_messages(maps)
+                await self.send({
+                    &#34;command&#34;: &#34;coop_info&#34;,
+                    &#34;uid&#34;: row.id,
+                    &#34;type&#34;: campaigns[row.type],
+                    &#34;name&#34;: row.name,
+                    &#34;description&#34;: row.description,
+                    &#34;filename&#34;: row.filename,
+                    &#34;featured_mod&#34;: &#34;coop&#34;
+                })
 
     async def command_matchmaker_info(self, message):
         await self.send({
@@ -1634,33 +1682,42 @@ class LobbyConnection:
 
         auth_method = &#34;password&#34;
         auth_error_message = &#34;Login not found or password incorrect. They are case sensitive.&#34;
-        row = await result.fetchone()
+        row = result.fetchone()
         if not row:
             raise AuthenticationError(auth_error_message, auth_method)
 
-        player_id = row[t_login.c.id]
-        real_username = row[t_login.c.login]
-        dbPassword = row[t_login.c.password]
-        steamid = row[t_login.c.steamid]
-        create_time = row[t_login.c.create_time]
-        ban_reason = row[lobby_ban.c.reason]
-        ban_expiry = row[lobby_ban.c.expires_at]
+        player_id = row.id
+        real_username = row.login
+        dbPassword = row.password
+        steamid = row.steamid
+        create_time = row.create_time
+        ban_reason = row.reason
+        ban_expiry = row.expires_at
 
         if dbPassword != password:
             raise AuthenticationError(auth_error_message, auth_method)
 
         now = datetime.utcnow()
         if ban_reason is not None and now &lt; ban_expiry:
-            self._logger.debug(&#34;Rejected login from banned user: %s, %s, %s&#34;,
-                               player_id, username, self.session)
+            self._logger.debug(
+                &#34;Rejected login from banned user: %s, %s, %s&#34;,
+                player_id, username, self.session
+            )
             raise BanError(ban_expiry, ban_reason)
 
         # New accounts are prevented from playing if they didn&#39;t link to steam
 
         if config.FORCE_STEAM_LINK and not steamid and create_time.timestamp() &gt; config.FORCE_STEAM_LINK_AFTER_DATE:
-            self._logger.debug(&#34;Rejected login from new user: %s, %s, %s&#34;, player_id, username, self.session)
+            self._logger.debug(
+                &#34;Rejected login from new user: %s, %s, %s&#34;,
+                player_id, username, self.session
+            )
             raise ClientError(
-                &#39;Unfortunately, you must currently link your account to Steam in order to play Forged Alliance Forever. You can do so on &lt;a href=&#34;{steamlink_url}&#34;&gt;{steamlink_url}&lt;/a&gt;.&#39;.format(steamlink_url=config.WWW_URL + &#34;/account/link&#34;),
+                &#34;Unfortunately, you must currently link your account to Steam &#34;
+                &#34;in order to play Forged Alliance Forever. You can do so on &#34;
+                &#39;&lt;a href=&#34;{steamlink_url}&#34;&gt;{steamlink_url}&lt;/a&gt;.&#39;.format(
+                    steamlink_url=config.WWW_URL + &#34;/account/link&#34;
+                ),
                 recoverable=False)
 
         return player_id, real_username, steamid
@@ -1755,7 +1812,7 @@ class LobbyConnection:
                             level=ban_level,
                         )
                     )
-                except pymysql.MySQLError as e:
+                except DBAPIError as e:
                     raise ClientError(f&#34;Banning failed: {e}&#34;)
 
             return False
@@ -1773,7 +1830,7 @@ class LobbyConnection:
                 select([t_login.c.login, t_login.c.steamid])
                 .where(t_login.c.id == player_id)
             )
-            row = await result.fetchone()
+            row = result.fetchone()
 
             if not row:
                 self._logger.warning(&#34;User id not found in database possible fraudulent token: %s&#34;, player_id)
@@ -1909,7 +1966,7 @@ class LobbyConnection:
                 )
             )
 
-            async for row in result:
+            for row in result:
                 target_id, status = row[&#34;subject_id&#34;], row[&#34;status&#34;]
                 if status == &#34;FRIEND&#34;:
                     friends.append(target_id)
@@ -1946,10 +2003,12 @@ class LobbyConnection:
 
         try:
             await conn.execute(
-                &#34;UPDATE anope.anope_db_NickCore SET pass = %s WHERE display = %s&#34;,
-                (irc_pass, login)
+                &#34;UPDATE anope.anope_db_NickCore &#34;
+                &#34;SET pass = :passwd WHERE display = :display&#34;,
+                passwd=irc_pass,
+                display=login
             )
-        except (pymysql.OperationalError, pymysql.ProgrammingError):
+        except (OperationalError, ProgrammingError):
             self._logger.error(&#34;Failure updating NickServ password for %s&#34;, login)
 
     async def command_restore_game_session(self, message):
@@ -1993,8 +2052,6 @@ class LobbyConnection:
         action = message[&#34;action&#34;]
 
         if action == &#34;list_avatar&#34;:
-            avatarList = []
-
             async with self._db.acquire() as conn:
                 result = await conn.execute(
                     select([
@@ -2009,12 +2066,13 @@ class LobbyConnection:
                     )
                 )
 
-                async for row in result:
-                    avatar = {&#34;url&#34;: row[&#34;url&#34;], &#34;tooltip&#34;: row[&#34;tooltip&#34;]}
-                    avatarList.append(avatar)
-
-                if avatarList:
-                    await self.send({&#34;command&#34;: &#34;avatar&#34;, &#34;avatarlist&#34;: avatarList})
+                await self.send({
+                    &#34;command&#34;: &#34;avatar&#34;,
+                    &#34;avatarlist&#34;: [
+                        {&#34;url&#34;: row.url, &#34;tooltip&#34;: row.tooltip}
+                        for row in result
+                    ]
+                })
 
         elif action == &#34;select&#34;:
             avatar_url = message[&#34;avatar&#34;]
@@ -2033,7 +2091,7 @@ class LobbyConnection:
                             )
                         )
                     )
-                    row = await result.fetchone()
+                    row = result.fetchone()
                     if not row:
                         return
 
@@ -2051,7 +2109,7 @@ class LobbyConnection:
                         avatars.update().where(
                             and_(
                                 avatars.c.idUser == self.player.id,
-                                avatars.c.idAvatar == row[avatars_list.c.id]
+                                avatars.c.idAvatar == row.id
                             )
                         ).values(
                             selected=1
@@ -2059,7 +2117,7 @@ class LobbyConnection:
                     )
                     self.player.avatar = {
                         &#34;url&#34;: avatar_url,
-                        &#34;tooltip&#34;: row[avatars_list.c.tooltip]
+                        &#34;tooltip&#34;: row.tooltip
                     }
                 self.player_service.mark_dirty(self.player)
         else:
@@ -2244,15 +2302,49 @@ class LobbyConnection:
 
     async def launch_game(
         self,
-        game,
-        is_host=False,
-        options=GameLaunchOptions(),
-    ):
-        assert self.player is not None
-        # TODO: Fix setting up a ridiculous amount of cyclic pointers here
+        game: Game,
+        is_host: bool = False,
+        options: GameLaunchOptions = GameLaunchOptions(),
+    ) -&gt; None:
         if self.game_connection:
             await self.game_connection.abort(&#34;Player launched a new game&#34;)
+            self.game_connection = None
 
+        await self.send(self._prepare_launch_game(
+            game,
+            is_host=is_host,
+            options=options
+        ))
+
+    def write_launch_game(
+        self,
+        game: Game,
+        is_host: bool = False,
+        options: GameLaunchOptions = GameLaunchOptions(),
+    ) -&gt; None:
+        if self.game_connection is not None:
+            self._logger.warning(
+                &#34;%s launched a new game while old GameConnection was active&#34;,
+                self.player
+            )
+            self.game_connection = None
+
+        self.write(self._prepare_launch_game(
+            game,
+            is_host=is_host,
+            options=options
+        ))
+
+    def _prepare_launch_game(
+        self,
+        game: Game,
+        is_host: bool = False,
+        options: GameLaunchOptions = GameLaunchOptions(),
+    ):
+        assert self.player is not None
+        assert self.game_connection is None
+
+        # TODO: Fix setting up a ridiculous amount of cyclic pointers here
         if is_host:
             game.host = self.player
 
@@ -2265,7 +2357,6 @@ class LobbyConnection:
             games=self.game_service
         )
 
-        self.player.state = PlayerState.HOSTING if is_host else PlayerState.JOINING
         self.player.game = game
         cmd = {
             &#34;command&#34;: &#34;game_launch&#34;,
@@ -2278,12 +2369,14 @@ class LobbyConnection:
             # options are. Currently, options for ladder are hardcoded into the
             # client.
             &#34;name&#34;: game.name,
+            # DEPRICATED: init_mode can be inferred from game_type
             &#34;init_mode&#34;: game.init_mode.value,
+            &#34;game_type&#34;: game.game_type.value,
             &#34;rating_type&#34;: game.rating_type,
             **options._asdict()
         }
 
-        await self.send({k: v for k, v in cmd.items() if v is not None})
+        return {k: v for k, v in cmd.items() if v is not None}
 
     async def command_modvault(self, message):
         type = message[&#34;type&#34;]
@@ -2292,7 +2385,7 @@ class LobbyConnection:
             if type == &#34;start&#34;:
                 result = await conn.execute(&#34;SELECT uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon FROM table_mod ORDER BY likes DESC LIMIT 100&#34;)
 
-                async for row in result:
+                for row in result:
                     uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon = (row[i] for i in range(12))
                     try:
                         link = urllib.parse.urljoin(config.CONTENT_URL, &#34;faf/vault/&#34; + filename)
@@ -2305,15 +2398,20 @@ class LobbyConnection:
                                    downloads=downloads, date=int(date.timestamp()), uid=uid, name=name, version=version, author=author,
                                    ui=ui)
                         await self.send(out)
-                    except:
+                    except Exception:
                         self._logger.error(f&#34;Error handling table_mod row (uid: {uid})&#34;, exc_info=True)
 
             elif type == &#34;like&#34;:
                 canLike = True
                 uid = message[&#34;uid&#34;]
-                result = await conn.execute(&#34;SELECT uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon, likers FROM `table_mod` WHERE uid = %s LIMIT 1&#34;, (uid,))
+                result = await conn.execute(
+                    &#34;SELECT uid, name, version, author, ui, date, downloads, &#34;
+                    &#34;likes, played, description, filename, icon, likers FROM &#34;
+                    &#34;`table_mod` WHERE uid = :uid LIMIT 1&#34;,
+                    uid=uid
+                )
 
-                row = await result.fetchone()
+                row = result.fetchone()
                 uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon, likerList = (row[i] for i in range(13))
                 link = urllib.parse.urljoin(config.CONTENT_URL, &#34;faf/vault/&#34; + filename)
                 thumbstr = &#34;&#34;
@@ -2331,7 +2429,7 @@ class LobbyConnection:
                         canLike = False
                     else:
                         likers.append(self.player.id)
-                except:
+                except Exception:
                     likers = []
 
                 # TODO: Avoid sending all the mod info in the world just because we liked it?
@@ -2339,8 +2437,10 @@ class LobbyConnection:
                     await conn.execute(
                         &#34;UPDATE mod_stats s &#34;
                         &#34;JOIN mod_version v ON v.mod_id = s.mod_id &#34;
-                        &#34;SET s.likes = s.likes + 1, likers=%s WHERE v.uid = %s&#34;,
-                        json.dumps(likers), uid)
+                        &#34;SET s.likes = s.likes + 1, likers=:l WHERE v.uid=:id&#34;,
+                        l=json.dumps(likers),
+                        id=uid
+                    )
                     await self.send(out)
 
             elif type == &#34;download&#34;:
@@ -2480,16 +2580,18 @@ class LobbyConnection:
                 .where(lobby_ban.c.idUser == self.player.id)
                 .order_by(lobby_ban.c.expires_at.desc())
             )
+            row = result.fetchone()
 
-            data = await result.fetchone()
-            if data is None:
+            if row is None:
                 return
 
-            ban_expiry = data[ban.c.expires_at]
-            ban_reason = data[ban.c.reason]
+            ban_expiry = row.expires_at
+            ban_reason = row.reason
             if now &lt; ban_expiry:
-                self._logger.debug(&#34;Aborting connection of banned user: %s, %s, %s&#34;,
-                                   self.player.id, self.player.login, self.session)
+                self._logger.debug(
+                    &#34;Aborting connection of banned user: %s, %s, %s&#34;,
+                    self.player.id, self.player.login, self.session
+                )
                 raise BanError(ban_expiry, ban_reason)</code></pre>
 </details>
 <h3>Instance variables</h3>
@@ -2549,16 +2651,18 @@ def authenticated(self):
             .where(lobby_ban.c.idUser == self.player.id)
             .order_by(lobby_ban.c.expires_at.desc())
         )
+        row = result.fetchone()
 
-        data = await result.fetchone()
-        if data is None:
+        if row is None:
             return
 
-        ban_expiry = data[ban.c.expires_at]
-        ban_reason = data[ban.c.reason]
+        ban_expiry = row.expires_at
+        ban_reason = row.reason
         if now &lt; ban_expiry:
-            self._logger.debug(&#34;Aborting connection of banned user: %s, %s, %s&#34;,
-                               self.player.id, self.player.login, self.session)
+            self._logger.debug(
+                &#34;Aborting connection of banned user: %s, %s, %s&#34;,
+                self.player.id, self.player.login, self.session
+            )
             raise BanError(ban_expiry, ban_reason)</code></pre>
 </details>
 </dd>
@@ -2639,7 +2743,7 @@ def authenticated(self):
                         level=ban_level,
                     )
                 )
-            except pymysql.MySQLError as e:
+            except DBAPIError as e:
                 raise ClientError(f&#34;Banning failed: {e}&#34;)
 
         return False
@@ -2674,33 +2778,42 @@ def authenticated(self):
 
     auth_method = &#34;password&#34;
     auth_error_message = &#34;Login not found or password incorrect. They are case sensitive.&#34;
-    row = await result.fetchone()
+    row = result.fetchone()
     if not row:
         raise AuthenticationError(auth_error_message, auth_method)
 
-    player_id = row[t_login.c.id]
-    real_username = row[t_login.c.login]
-    dbPassword = row[t_login.c.password]
-    steamid = row[t_login.c.steamid]
-    create_time = row[t_login.c.create_time]
-    ban_reason = row[lobby_ban.c.reason]
-    ban_expiry = row[lobby_ban.c.expires_at]
+    player_id = row.id
+    real_username = row.login
+    dbPassword = row.password
+    steamid = row.steamid
+    create_time = row.create_time
+    ban_reason = row.reason
+    ban_expiry = row.expires_at
 
     if dbPassword != password:
         raise AuthenticationError(auth_error_message, auth_method)
 
     now = datetime.utcnow()
     if ban_reason is not None and now &lt; ban_expiry:
-        self._logger.debug(&#34;Rejected login from banned user: %s, %s, %s&#34;,
-                           player_id, username, self.session)
+        self._logger.debug(
+            &#34;Rejected login from banned user: %s, %s, %s&#34;,
+            player_id, username, self.session
+        )
         raise BanError(ban_expiry, ban_reason)
 
     # New accounts are prevented from playing if they didn&#39;t link to steam
 
     if config.FORCE_STEAM_LINK and not steamid and create_time.timestamp() &gt; config.FORCE_STEAM_LINK_AFTER_DATE:
-        self._logger.debug(&#34;Rejected login from new user: %s, %s, %s&#34;, player_id, username, self.session)
+        self._logger.debug(
+            &#34;Rejected login from new user: %s, %s, %s&#34;,
+            player_id, username, self.session
+        )
         raise ClientError(
-            &#39;Unfortunately, you must currently link your account to Steam in order to play Forged Alliance Forever. You can do so on &lt;a href=&#34;{steamlink_url}&#34;&gt;{steamlink_url}&lt;/a&gt;.&#39;.format(steamlink_url=config.WWW_URL + &#34;/account/link&#34;),
+            &#34;Unfortunately, you must currently link your account to Steam &#34;
+            &#34;in order to play Forged Alliance Forever. You can do so on &#34;
+            &#39;&lt;a href=&#34;{steamlink_url}&#34;&gt;{steamlink_url}&lt;/a&gt;.&#39;.format(
+                steamlink_url=config.WWW_URL + &#34;/account/link&#34;
+            ),
             recoverable=False)
 
     return player_id, real_username, steamid</code></pre>
@@ -2837,7 +2950,7 @@ async def command_accept_party_invite(self, message):
             select([t_login.c.login, t_login.c.steamid])
             .where(t_login.c.id == player_id)
         )
-        row = await result.fetchone()
+        row = result.fetchone()
 
         if not row:
             self._logger.warning(&#34;User id not found in database possible fraudulent token: %s&#34;, player_id)
@@ -2870,8 +2983,6 @@ async def command_accept_party_invite(self, message):
     action = message[&#34;action&#34;]
 
     if action == &#34;list_avatar&#34;:
-        avatarList = []
-
         async with self._db.acquire() as conn:
             result = await conn.execute(
                 select([
@@ -2886,12 +2997,13 @@ async def command_accept_party_invite(self, message):
                 )
             )
 
-            async for row in result:
-                avatar = {&#34;url&#34;: row[&#34;url&#34;], &#34;tooltip&#34;: row[&#34;tooltip&#34;]}
-                avatarList.append(avatar)
-
-            if avatarList:
-                await self.send({&#34;command&#34;: &#34;avatar&#34;, &#34;avatarlist&#34;: avatarList})
+            await self.send({
+                &#34;command&#34;: &#34;avatar&#34;,
+                &#34;avatarlist&#34;: [
+                    {&#34;url&#34;: row.url, &#34;tooltip&#34;: row.tooltip}
+                    for row in result
+                ]
+            })
 
     elif action == &#34;select&#34;:
         avatar_url = message[&#34;avatar&#34;]
@@ -2910,7 +3022,7 @@ async def command_accept_party_invite(self, message):
                         )
                     )
                 )
-                row = await result.fetchone()
+                row = result.fetchone()
                 if not row:
                     return
 
@@ -2928,7 +3040,7 @@ async def command_accept_party_invite(self, message):
                     avatars.update().where(
                         and_(
                             avatars.c.idUser == self.player.id,
-                            avatars.c.idAvatar == row[avatars_list.c.id]
+                            avatars.c.idAvatar == row.id
                         )
                     ).values(
                         selected=1
@@ -2936,7 +3048,7 @@ async def command_accept_party_invite(self, message):
                 )
                 self.player.avatar = {
                     &#34;url&#34;: avatar_url,
-                    &#34;tooltip&#34;: row[avatars_list.c.tooltip]
+                    &#34;tooltip&#34;: row.tooltip
                 }
             self.player_service.mark_dirty(self.player)
     else:
@@ -2953,11 +3065,10 @@ async def command_accept_party_invite(self, message):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">async def command_coop_list(self, message):
-    &#34;&#34;&#34; Request for coop map list&#34;&#34;&#34;
+    &#34;&#34;&#34;Request for coop map list&#34;&#34;&#34;
     async with self._db.acquire() as conn:
-        result = await conn.execute(select([coop_map]))
+        result = await conn.stream(select([coop_map]))
 
-        maps = []
         campaigns = [
             &#34;FA Campaign&#34;,
             &#34;Aeon Vanilla Campaign&#34;,
@@ -2966,23 +3077,20 @@ async def command_accept_party_invite(self, message):
             &#34;Custom Missions&#34;
         ]
         async for row in result:
-            json_to_send = {
-                &#34;command&#34;: &#34;coop_info&#34;,
-                &#34;name&#34;: row[&#34;name&#34;],
-                &#34;description&#34;: row[&#34;description&#34;],
-                &#34;filename&#34;: row[&#34;filename&#34;],
-                &#34;featured_mod&#34;: &#34;coop&#34;
-            }
-            if row[&#34;type&#34;] &lt; len(campaigns):
-                json_to_send[&#34;type&#34;] = campaigns[row[&#34;type&#34;]]
-            else:
+            if row.type &gt;= len(campaigns):
                 # Don&#39;t sent corrupt data to the client...
-                self._logger.error(&#34;Unknown coop type!&#34;)
+                self._logger.error(&#34;Unknown coop type! %s&#34;, row.type)
                 continue
-            json_to_send[&#34;uid&#34;] = row[&#34;id&#34;]
-            maps.append(json_to_send)
 
-    await self.protocol.send_messages(maps)</code></pre>
+            await self.send({
+                &#34;command&#34;: &#34;coop_info&#34;,
+                &#34;uid&#34;: row.id,
+                &#34;type&#34;: campaigns[row.type],
+                &#34;name&#34;: row.name,
+                &#34;description&#34;: row.description,
+                &#34;filename&#34;: row.filename,
+                &#34;featured_mod&#34;: &#34;coop&#34;
+            })</code></pre>
 </details>
 </dd>
 <dt id="server.lobbyconnection.LobbyConnection.command_create_account"><code class="name flex">
@@ -3327,7 +3435,7 @@ async def command_kick_player_from_party(self, message):
         if type == &#34;start&#34;:
             result = await conn.execute(&#34;SELECT uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon FROM table_mod ORDER BY likes DESC LIMIT 100&#34;)
 
-            async for row in result:
+            for row in result:
                 uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon = (row[i] for i in range(12))
                 try:
                     link = urllib.parse.urljoin(config.CONTENT_URL, &#34;faf/vault/&#34; + filename)
@@ -3340,15 +3448,20 @@ async def command_kick_player_from_party(self, message):
                                downloads=downloads, date=int(date.timestamp()), uid=uid, name=name, version=version, author=author,
                                ui=ui)
                     await self.send(out)
-                except:
+                except Exception:
                     self._logger.error(f&#34;Error handling table_mod row (uid: {uid})&#34;, exc_info=True)
 
         elif type == &#34;like&#34;:
             canLike = True
             uid = message[&#34;uid&#34;]
-            result = await conn.execute(&#34;SELECT uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon, likers FROM `table_mod` WHERE uid = %s LIMIT 1&#34;, (uid,))
+            result = await conn.execute(
+                &#34;SELECT uid, name, version, author, ui, date, downloads, &#34;
+                &#34;likes, played, description, filename, icon, likers FROM &#34;
+                &#34;`table_mod` WHERE uid = :uid LIMIT 1&#34;,
+                uid=uid
+            )
 
-            row = await result.fetchone()
+            row = result.fetchone()
             uid, name, version, author, ui, date, downloads, likes, played, description, filename, icon, likerList = (row[i] for i in range(13))
             link = urllib.parse.urljoin(config.CONTENT_URL, &#34;faf/vault/&#34; + filename)
             thumbstr = &#34;&#34;
@@ -3366,7 +3479,7 @@ async def command_kick_player_from_party(self, message):
                     canLike = False
                 else:
                     likers.append(self.player.id)
-            except:
+            except Exception:
                 likers = []
 
             # TODO: Avoid sending all the mod info in the world just because we liked it?
@@ -3374,8 +3487,10 @@ async def command_kick_player_from_party(self, message):
                 await conn.execute(
                     &#34;UPDATE mod_stats s &#34;
                     &#34;JOIN mod_version v ON v.mod_id = s.mod_id &#34;
-                    &#34;SET s.likes = s.likes + 1, likers=%s WHERE v.uid = %s&#34;,
-                    json.dumps(likers), uid)
+                    &#34;SET s.likes = s.likes + 1, likers=:l WHERE v.uid=:id&#34;,
+                    l=json.dumps(likers),
+                    id=uid
+                )
                 await self.send(out)
 
         elif type == &#34;download&#34;:
@@ -3618,7 +3733,7 @@ async def command_kick_player_from_party(self, message):
 </details>
 </dd>
 <dt id="server.lobbyconnection.LobbyConnection.launch_game"><code class="name flex">
-<span>async def <span class="ident">launch_game</span></span>(<span>self, game, is_host=False, options=GameLaunchOptions(mapname=None, team=None, faction=None, expected_players=None, map_position=None))</span>
+<span>async def <span class="ident">launch_game</span></span>(<span>self, game: <a title="server.games.game.Game" href="games/game.html#server.games.game.Game">Game</a>, is_host: bool = False, options: <a title="server.types.GameLaunchOptions" href="types.html#server.types.GameLaunchOptions">GameLaunchOptions</a> = GameLaunchOptions(mapname=None, team=None, faction=None, expected_players=None, map_position=None, game_options=None)) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -3628,46 +3743,19 @@ async def command_kick_player_from_party(self, message):
 </summary>
 <pre><code class="python">async def launch_game(
     self,
-    game,
-    is_host=False,
-    options=GameLaunchOptions(),
-):
-    assert self.player is not None
-    # TODO: Fix setting up a ridiculous amount of cyclic pointers here
+    game: Game,
+    is_host: bool = False,
+    options: GameLaunchOptions = GameLaunchOptions(),
+) -&gt; None:
     if self.game_connection:
         await self.game_connection.abort(&#34;Player launched a new game&#34;)
+        self.game_connection = None
 
-    if is_host:
-        game.host = self.player
-
-    self.game_connection = GameConnection(
-        database=self._db,
-        game=game,
-        player=self.player,
-        protocol=self.protocol,
-        player_service=self.player_service,
-        games=self.game_service
-    )
-
-    self.player.state = PlayerState.HOSTING if is_host else PlayerState.JOINING
-    self.player.game = game
-    cmd = {
-        &#34;command&#34;: &#34;game_launch&#34;,
-        &#34;args&#34;: [&#34;/numgames&#34;, self.player.game_count[game.rating_type]],
-        &#34;uid&#34;: game.id,
-        &#34;mod&#34;: game.game_mode,
-        # Following parameters may not be used by the client yet. They are
-        # needed for setting up auto-lobby style matches such as ladder, gw,
-        # and team machmaking where the server decides what these game
-        # options are. Currently, options for ladder are hardcoded into the
-        # client.
-        &#34;name&#34;: game.name,
-        &#34;init_mode&#34;: game.init_mode.value,
-        &#34;rating_type&#34;: game.rating_type,
-        **options._asdict()
-    }
-
-    await self.send({k: v for k, v in cmd.items() if v is not None})</code></pre>
+    await self.send(self._prepare_launch_game(
+        game,
+        is_host=is_host,
+        options=options
+    ))</code></pre>
 </details>
 </dd>
 <dt id="server.lobbyconnection.LobbyConnection.on_connection_lost"><code class="name flex">
@@ -3887,7 +3975,7 @@ async def command_kick_player_from_party(self, message):
             )
         )
 
-        async for row in result:
+        for row in result:
             target_id, status = row[&#34;subject_id&#34;], row[&#34;status&#34;]
             if status == &#34;FRIEND&#34;:
                 friends.append(target_id)
@@ -4047,10 +4135,12 @@ a fatal warning it should disconnect and not attempt to reconnect.</li>
 
     try:
         await conn.execute(
-            &#34;UPDATE anope.anope_db_NickCore SET pass = %s WHERE display = %s&#34;,
-            (irc_pass, login)
+            &#34;UPDATE anope.anope_db_NickCore &#34;
+            &#34;SET pass = :passwd WHERE display = :display&#34;,
+            passwd=irc_pass,
+            display=login
         )
-    except (pymysql.OperationalError, pymysql.ProgrammingError):
+    except (OperationalError, ProgrammingError):
         self._logger.error(&#34;Failure updating NickServ password for %s&#34;, login)</code></pre>
 </details>
 </dd>
@@ -4067,6 +4157,35 @@ a fatal warning it should disconnect and not attempt to reconnect.</li>
     &#34;&#34;&#34;Write a message into the send buffer.&#34;&#34;&#34;
     self._logger.log(TRACE, &#34;&gt;&gt; %s: %s&#34;, self.get_user_identifier(), message)
     self.protocol.write_message(message)</code></pre>
+</details>
+</dd>
+<dt id="server.lobbyconnection.LobbyConnection.write_launch_game"><code class="name flex">
+<span>def <span class="ident">write_launch_game</span></span>(<span>self, game: <a title="server.games.game.Game" href="games/game.html#server.games.game.Game">Game</a>, is_host: bool = False, options: <a title="server.types.GameLaunchOptions" href="types.html#server.types.GameLaunchOptions">GameLaunchOptions</a> = GameLaunchOptions(mapname=None, team=None, faction=None, expected_players=None, map_position=None, game_options=None)) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def write_launch_game(
+    self,
+    game: Game,
+    is_host: bool = False,
+    options: GameLaunchOptions = GameLaunchOptions(),
+) -&gt; None:
+    if self.game_connection is not None:
+        self._logger.warning(
+            &#34;%s launched a new game while old GameConnection was active&#34;,
+            self.player
+        )
+        self.game_connection = None
+
+    self.write(self._prepare_launch_game(
+        game,
+        is_host=is_host,
+        options=options
+    ))</code></pre>
 </details>
 </dd>
 <dt id="server.lobbyconnection.LobbyConnection.write_warning"><code class="name flex">
@@ -4162,6 +4281,7 @@ a fatal warning it should disconnect and not attempt to reconnect.</li>
 <li><code><a title="server.lobbyconnection.LobbyConnection.send_warning" href="#server.lobbyconnection.LobbyConnection.send_warning">send_warning</a></code></li>
 <li><code><a title="server.lobbyconnection.LobbyConnection.update_irc_password" href="#server.lobbyconnection.LobbyConnection.update_irc_password">update_irc_password</a></code></li>
 <li><code><a title="server.lobbyconnection.LobbyConnection.write" href="#server.lobbyconnection.LobbyConnection.write">write</a></code></li>
+<li><code><a title="server.lobbyconnection.LobbyConnection.write_launch_game" href="#server.lobbyconnection.LobbyConnection.write_launch_game">write_launch_game</a></code></li>
 <li><code><a title="server.lobbyconnection.LobbyConnection.write_warning" href="#server.lobbyconnection.LobbyConnection.write_warning">write_warning</a></code></li>
 </ul>
 </li>

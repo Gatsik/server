@@ -42,8 +42,7 @@
     Text
 )
 
-from ..games.game_results import GameOutcome
-from ..games.typedefs import Victory
+from .typedefs import GameOutcome, Victory
 
 metadata = MetaData()
 
@@ -152,10 +151,13 @@ game_player_stats = Table(
     Column(&#34;color&#34;,         Integer, nullable=False),
     Column(&#34;team&#34;,          Integer, nullable=False),
     Column(&#34;place&#34;,         Integer, nullable=False),
+    # DEPRECATED: Use leaderboard_rating_journal instead. These columns should
+    # be dropped at some point.
     Column(&#34;mean&#34;,          Float,   nullable=False),
     Column(&#34;deviation&#34;,     Float,   nullable=False),
     Column(&#34;after_mean&#34;,    Float),
     Column(&#34;after_deviation&#34;, Float),
+    # End DEPRECATED
     Column(&#34;score&#34;,         Integer),
     Column(&#34;scoreTime&#34;,     TIMESTAMP),
     Column(&#34;result&#34;,        Enum(GameOutcome)),
@@ -318,6 +320,7 @@ matchmaker_queue = Table(
     Column(&#34;leaderboard_id&#34;,    Integer,        ForeignKey(&#34;leaderboard.id&#34;),       nullable=False),
     Column(&#34;name_key&#34;,          String(255),    nullable=False),
     Column(&#34;team_size&#34;,         Integer,        nullable=False),
+    Column(&#34;params&#34;,            Text),
     Column(&#34;enabled&#34;,           Boolean,        nullable=False),
     Column(&#34;create_time&#34;,   TIMESTAMP,      nullable=False),
     Column(&#34;update_time&#34;,   TIMESTAMP,      nullable=False)

@@ -34,9 +34,9 @@ Game communication over GpgNet
 import asyncio
 import contextlib
 import json
-from typing import Any, List
+from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from server.db import FAFDatabase
 
@@ -143,18 +143,14 @@ class GameConnection(GpgNetServerProtocol):
         This message is sent by FA when it doesn&#39;t know what to do.
         &#34;&#34;&#34;
         assert self.game
-        state = self.player.state
 
-        if state == PlayerState.HOSTING:
+        if self.player == self.game.host:
             self.game.state = GameState.LOBBY
             self._state = GameConnectionState.CONNECTED_TO_HOST
             self.game.add_game_connection(self)
-            self.game.host = self.player
-        elif state == PlayerState.JOINING:
-            return
+            self.player.state = PlayerState.HOSTING
         else:
-            self._logger.error(&#34;Unknown PlayerState: %s&#34;, state)
-            await self.abort()
+            self.player.state = PlayerState.JOINING
 
     async def _handle_lobby_state(self):
         &#34;&#34;&#34;
@@ -230,7 +226,7 @@ class GameConnection(GpgNetServerProtocol):
                     offer=False
                 )
 
-    async def handle_action(self, command: str, args: List[Any]):
+    async def handle_action(self, command: str, args: list[Any]):
         &#34;&#34;&#34;
         Handle GpgNetSend messages, wrapped in the JSON protocol
         &#34;&#34;&#34;
@@ -278,7 +274,7 @@ class GameConnection(GpgNetServerProtocol):
 
         self._mark_dirty()
 
-    async def handle_game_mods(self, mode: Any, args: List[Any]):
+    async def handle_game_mods(self, mode: Any, args: list[Any]):
         if not self.is_host():
             return
 
@@ -291,11 +287,12 @@ class GameConnection(GpgNetServerProtocol):
             uids = str(args).split()
             self.game.mods = {uid: &#34;Unknown sim mod&#34; for uid in uids}
             async with self._db.acquire() as conn:
-                result = await conn.execute(
-                    text(&#34;SELECT `uid`, `name` from `table_mod` WHERE `uid` in :ids&#34;),
-                    ids=tuple(uids))
-                async for row in result:
-                    self.game.mods[row[&#34;uid&#34;]] = row[&#34;name&#34;]
+                rows = await conn.execute(
+                    &#34;SELECT `uid`, `name` from `table_mod` WHERE `uid` in :ids&#34;,
+                    ids=tuple(uids)
+                )
+                for row in rows:
+                    self.game.mods[row.uid] = row.name
         else:
             self._logger.warning(&#34;Ignoring game mod: %s, %s&#34;, mode, args)
             return
@@ -369,13 +366,13 @@ class GameConnection(GpgNetServerProtocol):
                     coop_map.c.filename == self.game.map_file_path
                 )
             )
-            row = await result.fetchone()
+            row = result.fetchone()
             if not row:
                 self._logger.debug(
                     &#34;can&#39;t find coop map: %s&#34;, self.game.map_file_path
                 )
                 return
-            mission = row[&#34;id&#34;]
+            mission = row.id
 
             # Each player in a co-op game will send the OperationComplete
             # message but we only need to perform this insert once
@@ -523,48 +520,54 @@ class GameConnection(GpgNetServerProtocol):
             if len(self.game.mods.keys()) &gt; 0:
                 async with self._db.acquire() as conn:
                     uids = list(self.game.mods.keys())
-                    await conn.execute(text(
-                        &#34;&#34;&#34; UPDATE mod_stats s JOIN mod_version v ON v.mod_id = s.mod_id
-                            SET s.times_played = s.times_played + 1 WHERE v.uid in :ids&#34;&#34;&#34;),
+                    await conn.execute(
+                        &#34;UPDATE mod_stats s JOIN mod_version v ON &#34;
+                        &#34;v.mod_id = s.mod_id &#34;
+                        &#34;SET s.times_played = s.times_played + 1 &#34;
+                        &#34;WHERE v.uid in :ids&#34;,
                         ids=tuple(uids)
                     )
+        # Signals that the FA executable has been closed
         elif state == &#34;Ended&#34;:
             await self.on_connection_lost()
         self._mark_dirty()
 
-    async def handle_game_ended(self, *args:  List[Any]):
+    async def handle_game_ended(self, *args:  list[Any]):
         &#34;&#34;&#34;
         Signals that the simulation has ended.
         &#34;&#34;&#34;
         self.finished_sim = True
-        await self.game.check_sim_end()
+        await self.game.check_game_finish(self.player)
 
-        # FIXME Move this into check_sim_end
-        if self.game.ended:
-            await self.game.on_game_end()
-
-    async def handle_rehost(self, *args: List[Any]):
+    async def handle_rehost(self, *args: list[Any]):
         &#34;&#34;&#34;
         Signals that the user has rehosted the game. This is currently unused but
         included for documentation purposes.
         &#34;&#34;&#34;
         pass
 
-    async def handle_bottleneck(self, *args: List[Any]):
+    async def handle_launch_status(self, status: str):
+        &#34;&#34;&#34;
+        Currently is sent with status `Rejected` if a matchmaker game failed
+        to start due to players using differing game settings.
+        &#34;&#34;&#34;
+        pass
+
+    async def handle_bottleneck(self, *args: list[Any]):
         &#34;&#34;&#34;
         Not sure what this command means. This is currently unused but
         included for documentation purposes.
         &#34;&#34;&#34;
         pass
 
-    async def handle_bottleneck_cleared(self, *args: List[Any]):
+    async def handle_bottleneck_cleared(self, *args: list[Any]):
         &#34;&#34;&#34;
         Not sure what this command means. This is currently unused but
         included for documentation purposes.
         &#34;&#34;&#34;
         pass
 
-    async def handle_disconnected(self, *args: List[Any]):
+    async def handle_disconnected(self, *args: list[Any]):
         &#34;&#34;&#34;
         Not sure what this command means. This is currently unused but
         included for documentation purposes.
@@ -645,27 +648,28 @@ class GameConnection(GpgNetServerProtocol):
 
 
 COMMAND_HANDLERS = {
-    &#34;Desync&#34;:               GameConnection.handle_desync,
-    &#34;GameState&#34;:            GameConnection.handle_game_state,
-    &#34;GameOption&#34;:           GameConnection.handle_game_option,
-    &#34;GameMods&#34;:             GameConnection.handle_game_mods,
-    &#34;PlayerOption&#34;:         GameConnection.handle_player_option,
     &#34;AIOption&#34;:             GameConnection.handle_ai_option,
-    &#34;ClearSlot&#34;:            GameConnection.handle_clear_slot,
-    &#34;GameResult&#34;:           GameConnection.handle_game_result,
-    &#34;OperationComplete&#34;:    GameConnection.handle_operation_complete,
-    &#34;JsonStats&#34;:            GameConnection.handle_json_stats,
-    &#34;EnforceRating&#34;:        GameConnection.handle_enforce_rating,
-    &#34;TeamkillReport&#34;:       GameConnection.handle_teamkill_report,
-    &#34;TeamkillHappened&#34;:     GameConnection.handle_teamkill_happened,
-    &#34;GameEnded&#34;:            GameConnection.handle_game_ended,
-    &#34;Rehost&#34;:               GameConnection.handle_rehost,
     &#34;Bottleneck&#34;:           GameConnection.handle_bottleneck,
     &#34;BottleneckCleared&#34;:    GameConnection.handle_bottleneck_cleared,
-    &#34;Disconnected&#34;:         GameConnection.handle_disconnected,
-    &#34;IceMsg&#34;:               GameConnection.handle_ice_message,
     &#34;Chat&#34;:                 GameConnection.handle_chat,
-    &#34;GameFull&#34;:             GameConnection.handle_game_full
+    &#34;ClearSlot&#34;:            GameConnection.handle_clear_slot,
+    &#34;Desync&#34;:               GameConnection.handle_desync,
+    &#34;Disconnected&#34;:         GameConnection.handle_disconnected,
+    &#34;EnforceRating&#34;:        GameConnection.handle_enforce_rating,
+    &#34;GameEnded&#34;:            GameConnection.handle_game_ended,
+    &#34;GameFull&#34;:             GameConnection.handle_game_full,
+    &#34;GameMods&#34;:             GameConnection.handle_game_mods,
+    &#34;GameOption&#34;:           GameConnection.handle_game_option,
+    &#34;GameResult&#34;:           GameConnection.handle_game_result,
+    &#34;GameState&#34;:            GameConnection.handle_game_state,
+    &#34;IceMsg&#34;:               GameConnection.handle_ice_message,
+    &#34;JsonStats&#34;:            GameConnection.handle_json_stats,
+    &#34;LaunchStatus&#34;:         GameConnection.handle_launch_status,
+    &#34;OperationComplete&#34;:    GameConnection.handle_operation_complete,
+    &#34;PlayerOption&#34;:         GameConnection.handle_player_option,
+    &#34;Rehost&#34;:               GameConnection.handle_rehost,
+    &#34;TeamkillHappened&#34;:     GameConnection.handle_teamkill_happened,
+    &#34;TeamkillReport&#34;:       GameConnection.handle_teamkill_report,
 }</code></pre>
 </details>
 </section>
@@ -689,7 +693,8 @@ COMMAND_HANDLERS = {
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class GameConnection(GpgNetServerProtocol):
+<pre><code class="python">@with_logger
+class GameConnection(GpgNetServerProtocol):
     &#34;&#34;&#34;
     Responsible for connections to the game, using the GPGNet protocol
     &#34;&#34;&#34;
@@ -772,18 +777,14 @@ COMMAND_HANDLERS = {
         This message is sent by FA when it doesn&#39;t know what to do.
         &#34;&#34;&#34;
         assert self.game
-        state = self.player.state
 
-        if state == PlayerState.HOSTING:
+        if self.player == self.game.host:
             self.game.state = GameState.LOBBY
             self._state = GameConnectionState.CONNECTED_TO_HOST
             self.game.add_game_connection(self)
-            self.game.host = self.player
-        elif state == PlayerState.JOINING:
-            return
+            self.player.state = PlayerState.HOSTING
         else:
-            self._logger.error(&#34;Unknown PlayerState: %s&#34;, state)
-            await self.abort()
+            self.player.state = PlayerState.JOINING
 
     async def _handle_lobby_state(self):
         &#34;&#34;&#34;
@@ -859,7 +860,7 @@ COMMAND_HANDLERS = {
                     offer=False
                 )
 
-    async def handle_action(self, command: str, args: List[Any]):
+    async def handle_action(self, command: str, args: list[Any]):
         &#34;&#34;&#34;
         Handle GpgNetSend messages, wrapped in the JSON protocol
         &#34;&#34;&#34;
@@ -907,7 +908,7 @@ COMMAND_HANDLERS = {
 
         self._mark_dirty()
 
-    async def handle_game_mods(self, mode: Any, args: List[Any]):
+    async def handle_game_mods(self, mode: Any, args: list[Any]):
         if not self.is_host():
             return
 
@@ -920,11 +921,12 @@ COMMAND_HANDLERS = {
             uids = str(args).split()
             self.game.mods = {uid: &#34;Unknown sim mod&#34; for uid in uids}
             async with self._db.acquire() as conn:
-                result = await conn.execute(
-                    text(&#34;SELECT `uid`, `name` from `table_mod` WHERE `uid` in :ids&#34;),
-                    ids=tuple(uids))
-                async for row in result:
-                    self.game.mods[row[&#34;uid&#34;]] = row[&#34;name&#34;]
+                rows = await conn.execute(
+                    &#34;SELECT `uid`, `name` from `table_mod` WHERE `uid` in :ids&#34;,
+                    ids=tuple(uids)
+                )
+                for row in rows:
+                    self.game.mods[row.uid] = row.name
         else:
             self._logger.warning(&#34;Ignoring game mod: %s, %s&#34;, mode, args)
             return
@@ -998,13 +1000,13 @@ COMMAND_HANDLERS = {
                     coop_map.c.filename == self.game.map_file_path
                 )
             )
-            row = await result.fetchone()
+            row = result.fetchone()
             if not row:
                 self._logger.debug(
                     &#34;can&#39;t find coop map: %s&#34;, self.game.map_file_path
                 )
                 return
-            mission = row[&#34;id&#34;]
+            mission = row.id
 
             # Each player in a co-op game will send the OperationComplete
             # message but we only need to perform this insert once
@@ -1152,48 +1154,54 @@ COMMAND_HANDLERS = {
             if len(self.game.mods.keys()) &gt; 0:
                 async with self._db.acquire() as conn:
                     uids = list(self.game.mods.keys())
-                    await conn.execute(text(
-                        &#34;&#34;&#34; UPDATE mod_stats s JOIN mod_version v ON v.mod_id = s.mod_id
-                            SET s.times_played = s.times_played + 1 WHERE v.uid in :ids&#34;&#34;&#34;),
+                    await conn.execute(
+                        &#34;UPDATE mod_stats s JOIN mod_version v ON &#34;
+                        &#34;v.mod_id = s.mod_id &#34;
+                        &#34;SET s.times_played = s.times_played + 1 &#34;
+                        &#34;WHERE v.uid in :ids&#34;,
                         ids=tuple(uids)
                     )
+        # Signals that the FA executable has been closed
         elif state == &#34;Ended&#34;:
             await self.on_connection_lost()
         self._mark_dirty()
 
-    async def handle_game_ended(self, *args:  List[Any]):
+    async def handle_game_ended(self, *args:  list[Any]):
         &#34;&#34;&#34;
         Signals that the simulation has ended.
         &#34;&#34;&#34;
         self.finished_sim = True
-        await self.game.check_sim_end()
+        await self.game.check_game_finish(self.player)
 
-        # FIXME Move this into check_sim_end
-        if self.game.ended:
-            await self.game.on_game_end()
-
-    async def handle_rehost(self, *args: List[Any]):
+    async def handle_rehost(self, *args: list[Any]):
         &#34;&#34;&#34;
         Signals that the user has rehosted the game. This is currently unused but
         included for documentation purposes.
         &#34;&#34;&#34;
         pass
 
-    async def handle_bottleneck(self, *args: List[Any]):
+    async def handle_launch_status(self, status: str):
+        &#34;&#34;&#34;
+        Currently is sent with status `Rejected` if a matchmaker game failed
+        to start due to players using differing game settings.
+        &#34;&#34;&#34;
+        pass
+
+    async def handle_bottleneck(self, *args: list[Any]):
         &#34;&#34;&#34;
         Not sure what this command means. This is currently unused but
         included for documentation purposes.
         &#34;&#34;&#34;
         pass
 
-    async def handle_bottleneck_cleared(self, *args: List[Any]):
+    async def handle_bottleneck_cleared(self, *args: list[Any]):
         &#34;&#34;&#34;
         Not sure what this command means. This is currently unused but
         included for documentation purposes.
         &#34;&#34;&#34;
         pass
 
-    async def handle_disconnected(self, *args: List[Any]):
+    async def handle_disconnected(self, *args: list[Any]):
         &#34;&#34;&#34;
         Not sure what this command means. This is currently unused but
         included for documentation purposes.
@@ -1444,7 +1452,7 @@ and deletes references to Player and Game held by this object.</p></div>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_action"><code class="name flex">
-<span>async def <span class="ident">handle_action</span></span>(<span>self, command: str, args: List[Any])</span>
+<span>async def <span class="ident">handle_action</span></span>(<span>self, command: str, args: list[typing.Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Handle GpgNetSend messages, wrapped in the JSON protocol</p></div>
@@ -1452,7 +1460,7 @@ and deletes references to Player and Game held by this object.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">async def handle_action(self, command: str, args: List[Any]):
+<pre><code class="python">async def handle_action(self, command: str, args: list[Any]):
     &#34;&#34;&#34;
     Handle GpgNetSend messages, wrapped in the JSON protocol
     &#34;&#34;&#34;
@@ -1490,7 +1498,7 @@ and deletes references to Player and Game held by this object.</p></div>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_bottleneck"><code class="name flex">
-<span>async def <span class="ident">handle_bottleneck</span></span>(<span>self, *args: List[Any])</span>
+<span>async def <span class="ident">handle_bottleneck</span></span>(<span>self, *args: list[typing.Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Not sure what this command means. This is currently unused but
@@ -1499,7 +1507,7 @@ included for documentation purposes.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">async def handle_bottleneck(self, *args: List[Any]):
+<pre><code class="python">async def handle_bottleneck(self, *args: list[Any]):
     &#34;&#34;&#34;
     Not sure what this command means. This is currently unused but
     included for documentation purposes.
@@ -1508,7 +1516,7 @@ included for documentation purposes.</p></div>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_bottleneck_cleared"><code class="name flex">
-<span>async def <span class="ident">handle_bottleneck_cleared</span></span>(<span>self, *args: List[Any])</span>
+<span>async def <span class="ident">handle_bottleneck_cleared</span></span>(<span>self, *args: list[typing.Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Not sure what this command means. This is currently unused but
@@ -1517,7 +1525,7 @@ included for documentation purposes.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">async def handle_bottleneck_cleared(self, *args: List[Any]):
+<pre><code class="python">async def handle_bottleneck_cleared(self, *args: list[Any]):
     &#34;&#34;&#34;
     Not sure what this command means. This is currently unused but
     included for documentation purposes.
@@ -1572,7 +1580,7 @@ included for documentation purposes.</p></div>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_disconnected"><code class="name flex">
-<span>async def <span class="ident">handle_disconnected</span></span>(<span>self, *args: List[Any])</span>
+<span>async def <span class="ident">handle_disconnected</span></span>(<span>self, *args: list[typing.Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Not sure what this command means. This is currently unused but
@@ -1581,7 +1589,7 @@ included for documentation purposes.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">async def handle_disconnected(self, *args: List[Any]):
+<pre><code class="python">async def handle_disconnected(self, *args: list[Any]):
     &#34;&#34;&#34;
     Not sure what this command means. This is currently unused but
     included for documentation purposes.
@@ -1603,7 +1611,7 @@ included for documentation purposes.</p></div>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_game_ended"><code class="name flex">
-<span>async def <span class="ident">handle_game_ended</span></span>(<span>self, *args: List[Any])</span>
+<span>async def <span class="ident">handle_game_ended</span></span>(<span>self, *args: list[typing.Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Signals that the simulation has ended.</p></div>
@@ -1611,16 +1619,12 @@ included for documentation purposes.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">async def handle_game_ended(self, *args:  List[Any]):
+<pre><code class="python">async def handle_game_ended(self, *args:  list[Any]):
     &#34;&#34;&#34;
     Signals that the simulation has ended.
     &#34;&#34;&#34;
     self.finished_sim = True
-    await self.game.check_sim_end()
-
-    # FIXME Move this into check_sim_end
-    if self.game.ended:
-        await self.game.on_game_end()</code></pre>
+    await self.game.check_game_finish(self.player)</code></pre>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_game_full"><code class="name flex">
@@ -1640,7 +1644,7 @@ included for documentation purposes.</p></div>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_game_mods"><code class="name flex">
-<span>async def <span class="ident">handle_game_mods</span></span>(<span>self, mode: Any, args: List[Any])</span>
+<span>async def <span class="ident">handle_game_mods</span></span>(<span>self, mode: Any, args: list[typing.Any])</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -1648,7 +1652,7 @@ included for documentation purposes.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">async def handle_game_mods(self, mode: Any, args: List[Any]):
+<pre><code class="python">async def handle_game_mods(self, mode: Any, args: list[Any]):
     if not self.is_host():
         return
 
@@ -1661,11 +1665,12 @@ included for documentation purposes.</p></div>
         uids = str(args).split()
         self.game.mods = {uid: &#34;Unknown sim mod&#34; for uid in uids}
         async with self._db.acquire() as conn:
-            result = await conn.execute(
-                text(&#34;SELECT `uid`, `name` from `table_mod` WHERE `uid` in :ids&#34;),
-                ids=tuple(uids))
-            async for row in result:
-                self.game.mods[row[&#34;uid&#34;]] = row[&#34;name&#34;]
+            rows = await conn.execute(
+                &#34;SELECT `uid`, `name` from `table_mod` WHERE `uid` in :ids&#34;,
+                ids=tuple(uids)
+            )
+            for row in rows:
+                self.game.mods[row.uid] = row.name
     else:
         self._logger.warning(&#34;Ignoring game mod: %s, %s&#34;, mode, args)
         return
@@ -1777,11 +1782,14 @@ included for documentation purposes.</p></div>
         if len(self.game.mods.keys()) &gt; 0:
             async with self._db.acquire() as conn:
                 uids = list(self.game.mods.keys())
-                await conn.execute(text(
-                    &#34;&#34;&#34; UPDATE mod_stats s JOIN mod_version v ON v.mod_id = s.mod_id
-                        SET s.times_played = s.times_played + 1 WHERE v.uid in :ids&#34;&#34;&#34;),
+                await conn.execute(
+                    &#34;UPDATE mod_stats s JOIN mod_version v ON &#34;
+                    &#34;v.mod_id = s.mod_id &#34;
+                    &#34;SET s.times_played = s.times_played + 1 &#34;
+                    &#34;WHERE v.uid in :ids&#34;,
                     ids=tuple(uids)
                 )
+    # Signals that the FA executable has been closed
     elif state == &#34;Ended&#34;:
         await self.on_connection_lost()
     self._mark_dirty()</code></pre>
@@ -1844,6 +1852,24 @@ included for documentation purposes.</p></div>
         )</code></pre>
 </details>
 </dd>
+<dt id="server.gameconnection.GameConnection.handle_launch_status"><code class="name flex">
+<span>async def <span class="ident">handle_launch_status</span></span>(<span>self, status: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Currently is sent with status <code>Rejected</code> if a matchmaker game failed
+to start due to players using differing game settings.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def handle_launch_status(self, status: str):
+    &#34;&#34;&#34;
+    Currently is sent with status `Rejected` if a matchmaker game failed
+    to start due to players using differing game settings.
+    &#34;&#34;&#34;
+    pass</code></pre>
+</details>
+</dd>
 <dt id="server.gameconnection.GameConnection.handle_operation_complete"><code class="name flex">
 <span>async def <span class="ident">handle_operation_complete</span></span>(<span>self, primary: Any, secondary: Any, delta: str)</span>
 </code></dt>
@@ -1889,13 +1915,13 @@ included for documentation purposes.</p></div>
                 coop_map.c.filename == self.game.map_file_path
             )
         )
-        row = await result.fetchone()
+        row = result.fetchone()
         if not row:
             self._logger.debug(
                 &#34;can&#39;t find coop map: %s&#34;, self.game.map_file_path
             )
             return
-        mission = row[&#34;id&#34;]
+        mission = row.id
 
         # Each player in a co-op game will send the OperationComplete
         # message but we only need to perform this insert once
@@ -1932,7 +1958,7 @@ included for documentation purposes.</p></div>
 </details>
 </dd>
 <dt id="server.gameconnection.GameConnection.handle_rehost"><code class="name flex">
-<span>async def <span class="ident">handle_rehost</span></span>(<span>self, *args: List[Any])</span>
+<span>async def <span class="ident">handle_rehost</span></span>(<span>self, *args: list[typing.Any])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Signals that the user has rehosted the game. This is currently unused but
@@ -1941,7 +1967,7 @@ included for documentation purposes.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">async def handle_rehost(self, *args: List[Any]):
+<pre><code class="python">async def handle_rehost(self, *args: list[Any]):
     &#34;&#34;&#34;
     Signals that the user has rehosted the game. This is currently unused but
     included for documentation purposes.
@@ -2164,6 +2190,7 @@ cause the caller to be disconnected as well.</p></div>
 <li><code><a title="server.gameconnection.GameConnection.handle_game_state" href="#server.gameconnection.GameConnection.handle_game_state">handle_game_state</a></code></li>
 <li><code><a title="server.gameconnection.GameConnection.handle_ice_message" href="#server.gameconnection.GameConnection.handle_ice_message">handle_ice_message</a></code></li>
 <li><code><a title="server.gameconnection.GameConnection.handle_json_stats" href="#server.gameconnection.GameConnection.handle_json_stats">handle_json_stats</a></code></li>
+<li><code><a title="server.gameconnection.GameConnection.handle_launch_status" href="#server.gameconnection.GameConnection.handle_launch_status">handle_launch_status</a></code></li>
 <li><code><a title="server.gameconnection.GameConnection.handle_operation_complete" href="#server.gameconnection.GameConnection.handle_operation_complete">handle_operation_complete</a></code></li>
 <li><code><a title="server.gameconnection.GameConnection.handle_player_option" href="#server.gameconnection.GameConnection.handle_player_option">handle_player_option</a></code></li>
 <li><code><a title="server.gameconnection.GameConnection.handle_rehost" href="#server.gameconnection.GameConnection.handle_rehost">handle_rehost</a></code></li>

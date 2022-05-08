@@ -34,7 +34,7 @@ Server config variables
 import asyncio
 import logging
 import os
-from typing import Callable, Dict
+from typing import Callable
 
 import trueskill
 import yaml
@@ -46,6 +46,7 @@ TRACE = 5
 logging.addLevelName(TRACE, &#34;TRACE&#34;)
 logging.getLogger(&#34;aiomeasures&#34;).setLevel(logging.INFO)
 logging.getLogger(&#34;aio_pika&#34;).setLevel(logging.INFO)
+logging.getLogger(&#34;aiormq&#34;).setLevel(logging.INFO)
 
 # Constants
 FFA_TEAM = 1
@@ -111,7 +112,9 @@ class ConfigurationStore:
         self.NEWBIE_MIN_GAMES = 10
         self.START_RATING_MEAN = 1500
         self.START_RATING_DEV = 500
-        self.TOP_PLAYER_MIN_RATING = 1600
+        self.RATING_ADJUSTMENT_MAX_RATING = 1400
+        self.HIGH_RATED_PLAYER_MIN_RATING = 1400
+        self.TOP_PLAYER_MIN_RATING = 2000
 
         # Values for the custom (i.e. not trueskill) game quality metric used by the matchmaker
         self.MINIMUM_GAME_QUALITY = 0.4
@@ -140,12 +143,14 @@ class ConfigurationStore:
         self.LADDER_ANTI_REPETITION_LIMIT = 2
         self.LADDER_SEARCH_EXPANSION_MAX = 0.25
         self.LADDER_SEARCH_EXPANSION_STEP = 0.05
+        self.LADDER_TOP_PLAYER_SEARCH_EXPANSION_MAX = 0.3
+        self.LADDER_TOP_PLAYER_SEARCH_EXPANSION_STEP = 0.15
         # The maximum amount of time in seconds) to wait between pops.
         self.QUEUE_POP_TIME_MAX = 180
         # The number of possible matches we would like to have when the queue
         # pops. The queue pop time will be adjusted based on the current rate of
         # players queuing to try and hit this number.
-        self.QUEUE_POP_DESIRED_MATCHES = 4
+        self.QUEUE_POP_DESIRED_MATCHES = 2.5
         # How many previous queue sizes to consider
         self.QUEUE_POP_TIME_MOVING_AVG_SIZE = 5
 
@@ -153,7 +158,7 @@ class ConfigurationStore:
             key: value for key, value in vars(self).items() if key.isupper()
         }
 
-        self._callbacks: Dict[str, Callable] = {}
+        self._callbacks: dict[str, Callable] = {}
         self.refresh()
 
     def refresh(self) -&gt; None:
@@ -183,7 +188,7 @@ class ConfigurationStore:
             old_value = getattr(self, key, None)
             if new_value != old_value:
                 self._logger.info(
-                    &#34;New value for %s: %s -&gt; %s&#34;, key, old_value, new_value
+                    &#34;New value for %s: %r -&gt; %r&#34;, key, old_value, new_value
                 )
             setattr(self, key, new_value)
 
@@ -245,7 +250,8 @@ config.register_callback(&#34;LOG_LEVEL&#34;, set_log_level)</code></pre>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class ConfigurationStore:
+<pre><code class="python">@with_logger
+class ConfigurationStore:
     def __init__(self):
         &#34;&#34;&#34;
         Change default values here.
@@ -299,7 +305,9 @@ config.register_callback(&#34;LOG_LEVEL&#34;, set_log_level)</code></pre>
         self.NEWBIE_MIN_GAMES = 10
         self.START_RATING_MEAN = 1500
         self.START_RATING_DEV = 500
-        self.TOP_PLAYER_MIN_RATING = 1600
+        self.RATING_ADJUSTMENT_MAX_RATING = 1400
+        self.HIGH_RATED_PLAYER_MIN_RATING = 1400
+        self.TOP_PLAYER_MIN_RATING = 2000
 
         # Values for the custom (i.e. not trueskill) game quality metric used by the matchmaker
         self.MINIMUM_GAME_QUALITY = 0.4
@@ -328,12 +336,14 @@ config.register_callback(&#34;LOG_LEVEL&#34;, set_log_level)</code></pre>
         self.LADDER_ANTI_REPETITION_LIMIT = 2
         self.LADDER_SEARCH_EXPANSION_MAX = 0.25
         self.LADDER_SEARCH_EXPANSION_STEP = 0.05
+        self.LADDER_TOP_PLAYER_SEARCH_EXPANSION_MAX = 0.3
+        self.LADDER_TOP_PLAYER_SEARCH_EXPANSION_STEP = 0.15
         # The maximum amount of time in seconds) to wait between pops.
         self.QUEUE_POP_TIME_MAX = 180
         # The number of possible matches we would like to have when the queue
         # pops. The queue pop time will be adjusted based on the current rate of
         # players queuing to try and hit this number.
-        self.QUEUE_POP_DESIRED_MATCHES = 4
+        self.QUEUE_POP_DESIRED_MATCHES = 2.5
         # How many previous queue sizes to consider
         self.QUEUE_POP_TIME_MOVING_AVG_SIZE = 5
 
@@ -341,7 +351,7 @@ config.register_callback(&#34;LOG_LEVEL&#34;, set_log_level)</code></pre>
             key: value for key, value in vars(self).items() if key.isupper()
         }
 
-        self._callbacks: Dict[str, Callable] = {}
+        self._callbacks: dict[str, Callable] = {}
         self.refresh()
 
     def refresh(self) -&gt; None:
@@ -371,7 +381,7 @@ config.register_callback(&#34;LOG_LEVEL&#34;, set_log_level)</code></pre>
             old_value = getattr(self, key, None)
             if new_value != old_value:
                 self._logger.info(
-                    &#34;New value for %s: %s -&gt; %s&#34;, key, old_value, new_value
+                    &#34;New value for %s: %r -&gt; %r&#34;, key, old_value, new_value
                 )
             setattr(self, key, new_value)
 
@@ -426,7 +436,7 @@ config.register_callback(&#34;LOG_LEVEL&#34;, set_log_level)</code></pre>
         old_value = getattr(self, key, None)
         if new_value != old_value:
             self._logger.info(
-                &#34;New value for %s: %s -&gt; %s&#34;, key, old_value, new_value
+                &#34;New value for %s: %r -&gt; %r&#34;, key, old_value, new_value
             )
         setattr(self, key, new_value)
 

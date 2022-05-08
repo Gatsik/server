@@ -33,7 +33,6 @@ Interfaces with RabbitMQ
 
 import asyncio
 import json
-from typing import Dict
 
 import aio_pika
 from aio_pika import DeliveryMode, ExchangeType
@@ -55,8 +54,8 @@ class MessageQueueService(Service):
     Service handling connection to the message queue
     and providing an interface to publish messages.
     &#34;&#34;&#34;
+
     def __init__(self) -&gt; None:
-        self._logger.debug(&#34;Message queue service created.&#34;)
         self._connection = None
         self._channel = None
         self._exchanges = {}
@@ -116,7 +115,7 @@ class MessageQueueService(Service):
         self._logger.debug(&#34;Connected to RabbitMQ %r&#34;, self._connection)
 
     async def declare_exchange(
-        self, exchange_name: str, exchange_type: ExchangeType = ExchangeType.TOPIC
+        self, exchange_name: str, exchange_type: ExchangeType = ExchangeType.TOPIC, durable: bool = True
     ) -&gt; None:
         await self.initialize()
         if not self._is_ready:
@@ -125,13 +124,13 @@ class MessageQueueService(Service):
             )
             return
 
-        await self._declare_exchange(exchange_name, exchange_type)
+        await self._declare_exchange(exchange_name, exchange_type, durable)
 
     async def _declare_exchange(
-        self, exchange_name: str, exchange_type: ExchangeType
+        self, exchange_name: str, exchange_type: ExchangeType, durable: bool = True
     ) -&gt; None:
         new_exchange = await self._channel.declare_exchange(
-            exchange_name, exchange_type
+            exchange_name, exchange_type, durable
         )
 
         self._exchanges[exchange_name] = new_exchange
@@ -155,7 +154,7 @@ class MessageQueueService(Service):
         self,
         exchange_name: str,
         routing: str,
-        payload: Dict,
+        payload: dict,
         mandatory: bool = False,
         delivery_mode: DeliveryMode = DeliveryMode.PERSISTENT,
     ) -&gt; None:
@@ -240,13 +239,14 @@ and providing an interface to publish messages.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MessageQueueService(Service):
+<pre><code class="python">@with_logger
+class MessageQueueService(Service):
     &#34;&#34;&#34;
     Service handling connection to the message queue
     and providing an interface to publish messages.
     &#34;&#34;&#34;
+
     def __init__(self) -&gt; None:
-        self._logger.debug(&#34;Message queue service created.&#34;)
         self._connection = None
         self._channel = None
         self._exchanges = {}
@@ -306,7 +306,7 @@ and providing an interface to publish messages.</p></div>
         self._logger.debug(&#34;Connected to RabbitMQ %r&#34;, self._connection)
 
     async def declare_exchange(
-        self, exchange_name: str, exchange_type: ExchangeType = ExchangeType.TOPIC
+        self, exchange_name: str, exchange_type: ExchangeType = ExchangeType.TOPIC, durable: bool = True
     ) -&gt; None:
         await self.initialize()
         if not self._is_ready:
@@ -315,13 +315,13 @@ and providing an interface to publish messages.</p></div>
             )
             return
 
-        await self._declare_exchange(exchange_name, exchange_type)
+        await self._declare_exchange(exchange_name, exchange_type, durable)
 
     async def _declare_exchange(
-        self, exchange_name: str, exchange_type: ExchangeType
+        self, exchange_name: str, exchange_type: ExchangeType, durable: bool = True
     ) -&gt; None:
         new_exchange = await self._channel.declare_exchange(
-            exchange_name, exchange_type
+            exchange_name, exchange_type, durable
         )
 
         self._exchanges[exchange_name] = new_exchange
@@ -345,7 +345,7 @@ and providing an interface to publish messages.</p></div>
         self,
         exchange_name: str,
         routing: str,
-        payload: Dict,
+        payload: dict,
         mandatory: bool = False,
         delivery_mode: DeliveryMode = DeliveryMode.PERSISTENT,
     ) -&gt; None:
@@ -396,7 +396,7 @@ and providing an interface to publish messages.</p></div>
 <h3>Methods</h3>
 <dl>
 <dt id="server.message_queue_service.MessageQueueService.declare_exchange"><code class="name flex">
-<span>async def <span class="ident">declare_exchange</span></span>(<span>self, exchange_name: str, exchange_type: aio_pika.exchange.ExchangeType = ExchangeType.TOPIC) ‑> None</span>
+<span>async def <span class="ident">declare_exchange</span></span>(<span>self, exchange_name: str, exchange_type: aio_pika.abc.ExchangeType = ExchangeType.TOPIC, durable: bool = True) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -405,7 +405,7 @@ and providing an interface to publish messages.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">async def declare_exchange(
-    self, exchange_name: str, exchange_type: ExchangeType = ExchangeType.TOPIC
+    self, exchange_name: str, exchange_type: ExchangeType = ExchangeType.TOPIC, durable: bool = True
 ) -&gt; None:
     await self.initialize()
     if not self._is_ready:
@@ -414,11 +414,11 @@ and providing an interface to publish messages.</p></div>
         )
         return
 
-    await self._declare_exchange(exchange_name, exchange_type)</code></pre>
+    await self._declare_exchange(exchange_name, exchange_type, durable)</code></pre>
 </details>
 </dd>
 <dt id="server.message_queue_service.MessageQueueService.publish"><code class="name flex">
-<span>async def <span class="ident">publish</span></span>(<span>self, exchange_name: str, routing: str, payload: Dict[~KT, ~VT], mandatory: bool = False, delivery_mode: aio_pika.message.DeliveryMode = DeliveryMode.PERSISTENT) ‑> None</span>
+<span>async def <span class="ident">publish</span></span>(<span>self, exchange_name: str, routing: str, payload: dict, mandatory: bool = False, delivery_mode: aio_pika.abc.DeliveryMode = DeliveryMode.PERSISTENT) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -430,7 +430,7 @@ and providing an interface to publish messages.</p></div>
     self,
     exchange_name: str,
     routing: str,
-    payload: Dict,
+    payload: dict,
     mandatory: bool = False,
     delivery_mode: DeliveryMode = DeliveryMode.PERSISTENT,
 ) -&gt; None:

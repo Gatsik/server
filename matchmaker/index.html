@@ -102,24 +102,28 @@ __all__ = (
         self.searches = searches
 
     @property
-    def players(self) -&gt; List[Player]:
+    def players(self) -&gt; list[Player]:
         return list(itertools.chain(*[s.players for s in self.searches]))
 
     @property
-    def ratings(self):
+    def ratings(self) -&gt; list[Rating]:
         return list(itertools.chain(*[s.ratings for s in self.searches]))
 
     @property
-    def cumulative_rating(self):
+    def cumulative_rating(self) -&gt; float:
         return sum(s.cumulative_rating for s in self.searches)
 
     @property
-    def average_rating(self):
+    def average_rating(self) -&gt; float:
         return get_average_rating(self.searches)
 
     @property
-    def raw_ratings(self):
+    def raw_ratings(self) -&gt; list[Rating]:
         return list(itertools.chain(*[s.raw_ratings for s in self.searches]))
+
+    @property
+    def displayed_ratings(self) -&gt; list[float]:
+        return list(itertools.chain(*[s.displayed_ratings for s in self.searches]))
 
     @property
     def failed_matching_attempts(self) -&gt; int:
@@ -170,9 +174,12 @@ __all__ = (
             s.cancel()
 
     def __str__(self):
-        return f&#34;CombinedSearch({&#39;,&#39;.join(str(s) for s in self.searches)})&#34;
+        return f&#34;CombinedSearch({&#39;, &#39;.join(str(s) for s in self.searches)})&#34;
 
-    def get_original_searches(self) -&gt; List[Search]:
+    def __repr__(self):
+        return f&#34;CombinedSearch({&#39;, &#39;.join(str(s) for s in self.searches)})&#34;
+
+    def get_original_searches(self) -&gt; list[Search]:
         &#34;&#34;&#34;
         Returns the searches of which this CombinedSearch is comprised
         &#34;&#34;&#34;
@@ -184,7 +191,7 @@ __all__ = (
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="server.matchmaker.CombinedSearch.average_rating"><code class="name">var <span class="ident">average_rating</span></code></dt>
+<dt id="server.matchmaker.CombinedSearch.average_rating"><code class="name">var <span class="ident">average_rating</span> : float</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -192,11 +199,11 @@ __all__ = (
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def average_rating(self):
+def average_rating(self) -&gt; float:
     return get_average_rating(self.searches)</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.CombinedSearch.cumulative_rating"><code class="name">var <span class="ident">cumulative_rating</span></code></dt>
+<dt id="server.matchmaker.CombinedSearch.cumulative_rating"><code class="name">var <span class="ident">cumulative_rating</span> : float</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -204,7 +211,7 @@ def average_rating(self):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def cumulative_rating(self):
+def cumulative_rating(self) -&gt; float:
     return sum(s.cumulative_rating for s in self.searches)</code></pre>
 </details>
 </dd>
@@ -259,7 +266,7 @@ def match_threshold(self) -&gt; float:
     return min(s.match_threshold for s in self.searches)</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.CombinedSearch.players"><code class="name">var <span class="ident">players</span> : List[<a title="server.players.Player" href="../players.html#server.players.Player">Player</a>]</code></dt>
+<dt id="server.matchmaker.CombinedSearch.players"><code class="name">var <span class="ident">players</span> : list[<a title="server.players.Player" href="../players.html#server.players.Player">Player</a>]</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -267,11 +274,11 @@ def match_threshold(self) -&gt; float:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def players(self) -&gt; List[Player]:
+def players(self) -&gt; list[Player]:
     return list(itertools.chain(*[s.players for s in self.searches]))</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.CombinedSearch.ratings"><code class="name">var <span class="ident">ratings</span></code></dt>
+<dt id="server.matchmaker.CombinedSearch.ratings"><code class="name">var <span class="ident">ratings</span> : list[<a title="server.rating.Rating" href="../rating.html#server.rating.Rating">Rating</a>]</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -279,11 +286,11 @@ def players(self) -&gt; List[Player]:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def ratings(self):
+def ratings(self) -&gt; list[Rating]:
     return list(itertools.chain(*[s.ratings for s in self.searches]))</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.CombinedSearch.raw_ratings"><code class="name">var <span class="ident">raw_ratings</span></code></dt>
+<dt id="server.matchmaker.CombinedSearch.raw_ratings"><code class="name">var <span class="ident">raw_ratings</span> : list[<a title="server.rating.Rating" href="../rating.html#server.rating.Rating">Rating</a>]</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -291,7 +298,7 @@ def ratings(self):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def raw_ratings(self):
+def raw_ratings(self) -&gt; list[Rating]:
     return list(itertools.chain(*[s.raw_ratings for s in self.searches]))</code></pre>
 </details>
 </dd>
@@ -312,7 +319,7 @@ def raw_ratings(self):
 </details>
 </dd>
 <dt id="server.matchmaker.CombinedSearch.get_original_searches"><code class="name flex">
-<span>def <span class="ident">get_original_searches</span></span>(<span>self) ‑> List[<a title="server.matchmaker.search.Search" href="search.html#server.matchmaker.search.Search">Search</a>]</span>
+<span>def <span class="ident">get_original_searches</span></span>(<span>self) ‑> list[<a title="server.matchmaker.search.Search" href="search.html#server.matchmaker.search.Search">Search</a>]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Returns the searches of which this CombinedSearch is comprised</p></div>
@@ -320,7 +327,7 @@ def raw_ratings(self):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def get_original_searches(self) -&gt; List[Search]:
+<pre><code class="python">def get_original_searches(self) -&gt; list[Search]:
     &#34;&#34;&#34;
     Returns the searches of which this CombinedSearch is comprised
     &#34;&#34;&#34;
@@ -337,6 +344,7 @@ def raw_ratings(self):
 <li><code><a title="server.matchmaker.search.Search.boundary_75" href="search.html#server.matchmaker.search.Search.boundary_75">boundary_75</a></code></li>
 <li><code><a title="server.matchmaker.search.Search.boundary_80" href="search.html#server.matchmaker.search.Search.boundary_80">boundary_80</a></code></li>
 <li><code><a title="server.matchmaker.search.Search.cancel" href="search.html#server.matchmaker.search.Search.cancel">cancel</a></code></li>
+<li><code><a title="server.matchmaker.search.Search.displayed_ratings" href="search.html#server.matchmaker.search.Search.displayed_ratings">displayed_ratings</a></code></li>
 <li><code><a title="server.matchmaker.search.Search.match" href="search.html#server.matchmaker.search.Search.match">match</a></code></li>
 <li><code><a title="server.matchmaker.search.Search.matches_with" href="search.html#server.matchmaker.search.Search.matches_with">matches_with</a></code></li>
 <li><code><a title="server.matchmaker.search.Search.register_failed_matching_attempt" href="search.html#server.matchmaker.search.Search.register_failed_matching_attempt">register_failed_matching_attempt</a></code></li>
@@ -347,7 +355,7 @@ def raw_ratings(self):
 </dd>
 <dt id="server.matchmaker.MapPool"><code class="flex name class">
 <span>class <span class="ident">MapPool</span></span>
-<span>(</span><span>map_pool_id: int, name: str, maps: Iterable[Union[<a title="server.types.Map" href="../types.html#server.types.Map">Map</a>, <a title="server.types.NeroxisGeneratedMap" href="../types.html#server.types.NeroxisGeneratedMap">NeroxisGeneratedMap</a>]] = ())</span>
+<span>(</span><span>map_pool_id: int, name: str, maps: Iterable[<a title="server.types.MapPoolMap" href="../types.html#server.types.MapPoolMap">MapPoolMap</a>] = ())</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -355,19 +363,19 @@ def raw_ratings(self):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MapPool(object):
+<pre><code class="python">@with_logger
+class MapPool(object):
     def __init__(
         self,
         map_pool_id: int,
         name: str,
-        maps: Iterable[Union[Map, NeroxisGeneratedMap]] = ()
+        maps: Iterable[MapPoolMap] = ()
     ):
         self.id = map_pool_id
         self.name = name
-        self.maps = None
         self.set_maps(maps)
 
-    def set_maps(self, maps: Iterable[Union[Map, NeroxisGeneratedMap]]) -&gt; None:
+    def set_maps(self, maps: Iterable[MapPoolMap]) -&gt; None:
         self.maps = {map_.id: map_ for map_ in maps}
 
     def choose_map(self, played_map_ids: Iterable[int] = ()) -&gt; Map:
@@ -401,7 +409,8 @@ def raw_ratings(self):
 
         weights = [self.maps[id_].weight for id_, _ in least_common]
 
-        return self.maps[random.choices(least_common, weights=weights, k=1)[0][0]].get_map()
+        map_id = random.choices(least_common, weights=weights, k=1)[0][0]
+        return self.maps[map_id].get_map()
 
     def __repr__(self) -&gt; str:
         return f&#34;MapPool({self.id}, {self.name}, {list(self.maps.values())})&#34;</code></pre>
@@ -450,11 +459,12 @@ amount of times.</p></div>
 
     weights = [self.maps[id_].weight for id_, _ in least_common]
 
-    return self.maps[random.choices(least_common, weights=weights, k=1)[0][0]].get_map()</code></pre>
+    map_id = random.choices(least_common, weights=weights, k=1)[0][0]
+    return self.maps[map_id].get_map()</code></pre>
 </details>
 </dd>
 <dt id="server.matchmaker.MapPool.set_maps"><code class="name flex">
-<span>def <span class="ident">set_maps</span></span>(<span>self, maps: Iterable[Union[<a title="server.types.Map" href="../types.html#server.types.Map">Map</a>, <a title="server.types.NeroxisGeneratedMap" href="../types.html#server.types.NeroxisGeneratedMap">NeroxisGeneratedMap</a>]]) ‑> None</span>
+<span>def <span class="ident">set_maps</span></span>(<span>self, maps: Iterable[<a title="server.types.MapPoolMap" href="../types.html#server.types.MapPoolMap">MapPoolMap</a>]) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -462,7 +472,7 @@ amount of times.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def set_maps(self, maps: Iterable[Union[Map, NeroxisGeneratedMap]]) -&gt; None:
+<pre><code class="python">def set_maps(self, maps: Iterable[MapPoolMap]) -&gt; None:
     self.maps = {map_.id: map_ for map_ in maps}</code></pre>
 </details>
 </dd>
@@ -470,7 +480,7 @@ amount of times.</p></div>
 </dd>
 <dt id="server.matchmaker.MatchmakerQueue"><code class="flex name class">
 <span>class <span class="ident">MatchmakerQueue</span></span>
-<span>(</span><span>game_service: GameService, on_match_found: Callable[[<a title="server.matchmaker.search.Search" href="search.html#server.matchmaker.search.Search">Search</a>, <a title="server.matchmaker.search.Search" href="search.html#server.matchmaker.search.Search">Search</a>, ForwardRef('<a title="server.matchmaker.MatchmakerQueue" href="#server.matchmaker.MatchmakerQueue">MatchmakerQueue</a>')], Any], name: str, queue_id: int, featured_mod: str, rating_type: str, team_size: int = 1, map_pools: Iterable[Tuple[<a title="server.matchmaker.map_pool.MapPool" href="map_pool.html#server.matchmaker.map_pool.MapPool">MapPool</a>, Optional[int], Optional[int]]] = ())</span>
+<span>(</span><span>game_service: GameService, on_match_found: Callable[[<a title="server.matchmaker.search.Search" href="search.html#server.matchmaker.search.Search">Search</a>, <a title="server.matchmaker.search.Search" href="search.html#server.matchmaker.search.Search">Search</a>, ForwardRef('<a title="server.matchmaker.MatchmakerQueue" href="#server.matchmaker.MatchmakerQueue">MatchmakerQueue</a>')], Any], name: str, queue_id: int, featured_mod: str, rating_type: str, team_size: int = 1, params: Optional[dict[str, typing.Any]] = None, map_pools: Iterable[tuple[<a title="server.matchmaker.map_pool.MapPool" href="map_pool.html#server.matchmaker.map_pool.MapPool">MapPool</a>, Optional[int], Optional[int]]] = ())</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -478,7 +488,8 @@ amount of times.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MatchmakerQueue:
+<pre><code class="python">@with_logger
+class MatchmakerQueue:
     def __init__(
         self,
         game_service: &#34;GameService&#34;,
@@ -488,7 +499,8 @@ amount of times.</p></div>
         featured_mod: str,
         rating_type: str,
         team_size: int = 1,
-        map_pools: Iterable[Tuple[MapPool, Optional[int], Optional[int]]] = (),
+        params: Optional[dict[str, Any]] = None,
+        map_pools: Iterable[tuple[MapPool, Optional[int], Optional[int]]] = (),
     ):
         self.game_service = game_service
         self.name = name
@@ -496,9 +508,10 @@ amount of times.</p></div>
         self.featured_mod = featured_mod
         self.rating_type = rating_type
         self.team_size = team_size
+        self.params = params or {}
         self.map_pools = {info[0].id: info for info in map_pools}
 
-        self._queue: Dict[Search, None] = OrderedDict()
+        self._queue: dict[Search, None] = OrderedDict()
         self.on_match_found = on_match_found
         self._is_running = True
 
@@ -514,13 +527,16 @@ amount of times.</p></div>
     ) -&gt; None:
         self.map_pools[map_pool.id] = (map_pool, min_rating, max_rating)
 
-    def get_map_pool_for_rating(self, rating: int) -&gt; Optional[MapPool]:
+    def get_map_pool_for_rating(self, rating: float) -&gt; Optional[MapPool]:
         for map_pool, min_rating, max_rating in self.map_pools.values():
             if min_rating is not None and rating &lt; min_rating:
                 continue
             if max_rating is not None and rating &gt; max_rating:
                 continue
             return map_pool
+
+    def get_game_options(self) -&gt; dict[str, Any]:
+        return self.params.get(&#34;GameOptions&#34;) or None
 
     def initialize(self):
         asyncio.create_task(self.queue_pop_timer())
@@ -609,7 +625,7 @@ amount of times.</p></div>
         )
 
         # filter out matches that were cancelled
-        matches: List[Match] = []
+        matches: list[Match] = []
         for match in proposed_matches:
             if self.match(match[0], match[1]):
                 matches.append(match)
@@ -618,12 +634,17 @@ amount of times.</p></div>
 
         self._register_unmatched_searches(unmatched_searches)
 
-        number_of_matches = len(matches)
-        metrics.matches.labels(self.name).set(number_of_matches)
-
         for search1, search2 in matches:
-            # TODO: Move this into algorithm, then don&#39;t need to recalculate
-            # quality_with? Probably not a major bottleneck though.
+            self._report_party_sizes(search1)
+            self._report_party_sizes(search2)
+
+            rating_imbalance = abs(search1.cumulative_rating - search2.cumulative_rating)
+            metrics.match_rating_imbalance.labels(self.name).set(rating_imbalance)
+
+            ratings = search1.displayed_ratings + search2.displayed_ratings
+            rating_variety = max(ratings) - min(ratings)
+            metrics.match_rating_variety.labels(self.name).set(rating_variety)
+
             metrics.match_quality.labels(self.name).observe(
                 search1.quality_with(search2)
             )
@@ -632,9 +653,15 @@ amount of times.</p></div>
             except Exception:
                 self._logger.exception(&#34;Match callback raised an exception!&#34;)
 
+    def _report_party_sizes(self, team):
+        for search in team.get_original_searches():
+            metrics.matched_matchmaker_searches.labels(
+                self.name, len(search.players)
+            ).inc()
+
     def _register_unmatched_searches(
         self,
-        unmatched_searches: List[Search],
+        unmatched_searches: list[Search],
     ):
         &#34;&#34;&#34;
         Tells all unmatched searches that they went through a failed matching
@@ -784,7 +811,7 @@ async def find_matches(self) -&gt; None:
     )
 
     # filter out matches that were cancelled
-    matches: List[Match] = []
+    matches: list[Match] = []
     for match in proposed_matches:
         if self.match(match[0], match[1]):
             matches.append(match)
@@ -793,12 +820,17 @@ async def find_matches(self) -&gt; None:
 
     self._register_unmatched_searches(unmatched_searches)
 
-    number_of_matches = len(matches)
-    metrics.matches.labels(self.name).set(number_of_matches)
-
     for search1, search2 in matches:
-        # TODO: Move this into algorithm, then don&#39;t need to recalculate
-        # quality_with? Probably not a major bottleneck though.
+        self._report_party_sizes(search1)
+        self._report_party_sizes(search2)
+
+        rating_imbalance = abs(search1.cumulative_rating - search2.cumulative_rating)
+        metrics.match_rating_imbalance.labels(self.name).set(rating_imbalance)
+
+        ratings = search1.displayed_ratings + search2.displayed_ratings
+        rating_variety = max(ratings) - min(ratings)
+        metrics.match_rating_variety.labels(self.name).set(rating_variety)
+
         metrics.match_quality.labels(self.name).observe(
             search1.quality_with(search2)
         )
@@ -808,8 +840,8 @@ async def find_matches(self) -&gt; None:
             self._logger.exception(&#34;Match callback raised an exception!&#34;)</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.MatchmakerQueue.get_map_pool_for_rating"><code class="name flex">
-<span>def <span class="ident">get_map_pool_for_rating</span></span>(<span>self, rating: int) ‑> Optional[<a title="server.matchmaker.map_pool.MapPool" href="map_pool.html#server.matchmaker.map_pool.MapPool">MapPool</a>]</span>
+<dt id="server.matchmaker.MatchmakerQueue.get_game_options"><code class="name flex">
+<span>def <span class="ident">get_game_options</span></span>(<span>self) ‑> dict[str, typing.Any]</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -817,7 +849,20 @@ async def find_matches(self) -&gt; None:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def get_map_pool_for_rating(self, rating: int) -&gt; Optional[MapPool]:
+<pre><code class="python">def get_game_options(self) -&gt; dict[str, Any]:
+    return self.params.get(&#34;GameOptions&#34;) or None</code></pre>
+</details>
+</dd>
+<dt id="server.matchmaker.MatchmakerQueue.get_map_pool_for_rating"><code class="name flex">
+<span>def <span class="ident">get_map_pool_for_rating</span></span>(<span>self, rating: float) ‑> Optional[<a title="server.matchmaker.map_pool.MapPool" href="map_pool.html#server.matchmaker.map_pool.MapPool">MapPool</a>]</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def get_map_pool_for_rating(self, rating: float) -&gt; Optional[MapPool]:
     for map_pool, min_rating, max_rating in self.map_pools.values():
         if min_rating is not None and rating &lt; min_rating:
             continue
@@ -1039,7 +1084,8 @@ The exact size can be set in config.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class PopTimer(object):
+<pre><code class="python">@with_logger
+class PopTimer(object):
     &#34;&#34;&#34; Calculates when the next pop should happen based on the rate of players
     queuing.
 
@@ -1054,11 +1100,12 @@ The exact size can be set in config.</p></div>
     The player queue rate is based on a moving average over the last few pops.
     The exact size can be set in config.
     &#34;&#34;&#34;
+
     def __init__(self, queue: &#34;MatchmakerQueue&#34;):
         self.queue = queue
         # Set up deque&#39;s for calculating a moving average
-        self.last_queue_amounts: Deque[int] = deque(maxlen=config.QUEUE_POP_TIME_MOVING_AVG_SIZE)
-        self.last_queue_times: Deque[float] = deque(maxlen=config.QUEUE_POP_TIME_MOVING_AVG_SIZE)
+        self.last_queue_amounts: deque[int] = deque(maxlen=config.QUEUE_POP_TIME_MOVING_AVG_SIZE)
+        self.last_queue_times: deque[float] = deque(maxlen=config.QUEUE_POP_TIME_MOVING_AVG_SIZE)
 
         self._last_queue_pop = time()
         # Optimistically schedule first pop for half of the max pop time
@@ -1185,7 +1232,7 @@ on the current rate of ladder queues</p></div>
 </dd>
 <dt id="server.matchmaker.Search"><code class="flex name class">
 <span>class <span class="ident">Search</span></span>
-<span>(</span><span>players: List[<a title="server.players.Player" href="../players.html#server.players.Player">Player</a>], start_time: Optional[float] = None, rating_type: str = 'ladder_1v1', on_matched: Callable[[ForwardRef('<a title="server.matchmaker.Search" href="#server.matchmaker.Search">Search</a>'), ForwardRef('<a title="server.matchmaker.Search" href="#server.matchmaker.Search">Search</a>')], Any] = &lt;function Search.&lt;lambda&gt;&gt;)</span>
+<span>(</span><span>players: list[<a title="server.players.Player" href="../players.html#server.players.Player">Player</a>], start_time: Optional[float] = None, rating_type: str = 'ladder_1v1', on_matched: Callable[[ForwardRef('<a title="server.matchmaker.Search" href="#server.matchmaker.Search">Search</a>'), ForwardRef('<a title="server.matchmaker.Search" href="#server.matchmaker.Search">Search</a>')], Any] = &lt;function Search.&lt;lambda&gt;&gt;)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Represents the state of a users search for a match.</p></div>
@@ -1193,14 +1240,15 @@ on the current rate of ladder queues</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class Search:
+<pre><code class="python">@with_logger
+class Search:
     &#34;&#34;&#34;
     Represents the state of a users search for a match.
     &#34;&#34;&#34;
 
     def __init__(
         self,
-        players: List[Player],
+        players: list[Player],
         start_time: Optional[float] = None,
         rating_type: str = RatingType.LADDER_1V1,
         on_matched: OnMatchedCallback = lambda _1, _2: None
@@ -1219,7 +1267,7 @@ on the current rate of ladder queues</p></div>
         # Precompute this
         self.quality_against_self = self.quality_with(self)
 
-    def adjusted_rating(self, player: Player):
+    def adjusted_rating(self, player: Player) -&gt; Rating:
         &#34;&#34;&#34;
         Returns an adjusted mean with a simple linear interpolation between current mean and a specified base mean
         &#34;&#34;&#34;
@@ -1227,7 +1275,7 @@ on the current rate of ladder queues</p></div>
         game_count = player.game_count[self.rating_type]
         adjusted_mean = ((config.NEWBIE_MIN_GAMES - game_count) * config.NEWBIE_BASE_MEAN
                          + game_count * mean) / config.NEWBIE_MIN_GAMES
-        return adjusted_mean, dev
+        return Rating(adjusted_mean, dev)
 
     def is_newbie(self, player: Player) -&gt; bool:
         return player.game_count[self.rating_type] &lt;= config.NEWBIE_MIN_GAMES
@@ -1245,12 +1293,16 @@ on the current rate of ladder queues</p></div>
     def num_newbies(self) -&gt; int:
         return sum(self.is_newbie(player) for player in self.players)
 
+    def has_high_rated_player(self) -&gt; bool:
+        max_rating = max(self.displayed_ratings)
+        return max_rating &gt;= config.HIGH_RATED_PLAYER_MIN_RATING
+
     def has_top_player(self) -&gt; bool:
-        max_rating = max(map(lambda rating_tuple: rating_tuple[0], self.ratings))
+        max_rating = max(self.displayed_ratings)
         return max_rating &gt;= config.TOP_PLAYER_MIN_RATING
 
     @property
-    def ratings(self):
+    def ratings(self) -&gt; list[Rating]:
         ratings = []
         for player, rating in zip(self.players, self.raw_ratings):
             # New players (less than config.NEWBIE_MIN_GAMES games) match against less skilled opponents
@@ -1260,18 +1312,26 @@ on the current rate of ladder queues</p></div>
         return ratings
 
     @property
-    def cumulative_rating(self):
-        return sum(mean - 3 * dev for mean, dev in self.raw_ratings)
+    def cumulative_rating(self) -&gt; float:
+        return sum(self.displayed_ratings)
 
     @property
-    def average_rating(self):
-        return statistics.mean(mean - 3 * dev for mean, dev in self.raw_ratings)
+    def average_rating(self) -&gt; float:
+        return statistics.mean(self.displayed_ratings)
 
     @property
-    def raw_ratings(self):
+    def raw_ratings(self) -&gt; list[Rating]:
         return [player.ratings[self.rating_type] for player in self.players]
 
-    def _nearby_rating_range(self, delta):
+    @property
+    def displayed_ratings(self) -&gt; list[float]:
+        &#34;&#34;&#34;
+        The client always displays mean - 3 * dev as a player&#39;s rating.
+        So generally this is perceived as a player&#39;s true rating.
+        &#34;&#34;&#34;
+        return [rating.displayed() for rating in self.raw_ratings]
+
+    def _nearby_rating_range(self, delta: int) -&gt; tuple[int, int]:
         &#34;&#34;&#34;
         Returns &#39;boundary&#39; mu values for player matching. Adjust delta for
         different game qualities.
@@ -1281,12 +1341,12 @@ on the current rate of ladder queues</p></div>
         return rounded_mu - delta, rounded_mu + delta
 
     @property
-    def boundary_80(self):
+    def boundary_80(self) -&gt; tuple[int, int]:
         &#34;&#34;&#34; Achieves roughly 80% quality. &#34;&#34;&#34;
         return self._nearby_rating_range(200)
 
     @property
-    def boundary_75(self):
+    def boundary_75(self) -&gt; tuple[int, int]:
         &#34;&#34;&#34; Achieves roughly 75% quality. FIXME - why is it MORE restrictive??? &#34;&#34;&#34;
         return self._nearby_rating_range(100)
 
@@ -1302,12 +1362,19 @@ on the current rate of ladder queues</p></div>
 
         The threshold will expand linearly with every failed matching attempt
         until it reaches the specified MAX.
-        &#34;&#34;&#34;
 
-        return min(
-            self._failed_matching_attempts * config.LADDER_SEARCH_EXPANSION_STEP,
-            config.LADDER_SEARCH_EXPANSION_MAX
-        )
+        Top players use bigger values to make matching easier.
+        &#34;&#34;&#34;
+        if self.has_top_player():
+            return min(
+                self._failed_matching_attempts * config.LADDER_TOP_PLAYER_SEARCH_EXPANSION_STEP,
+                config.LADDER_TOP_PLAYER_SEARCH_EXPANSION_MAX
+            )
+        else:
+            return min(
+                self._failed_matching_attempts * config.LADDER_SEARCH_EXPANSION_STEP,
+                config.LADDER_SEARCH_EXPANSION_MAX
+            )
 
     def register_failed_matching_attempt(self):
         &#34;&#34;&#34;
@@ -1333,23 +1400,23 @@ on the current rate of ladder queues</p></div>
         assert all(other.raw_ratings)
         assert other.players
 
-        team1 = [Rating(*rating) for rating in self.ratings]
-        team2 = [Rating(*rating) for rating in other.ratings]
+        team1 = [trueskill.Rating(*rating) for rating in self.ratings]
+        team2 = [trueskill.Rating(*rating) for rating in other.ratings]
 
-        return quality([team1, team2])
+        return trueskill.quality([team1, team2])
 
     @property
-    def is_matched(self):
+    def is_matched(self) -&gt; bool:
         return self._match.done() and not self._match.cancelled()
 
-    def done(self):
+    def done(self) -&gt; bool:
         return self._match.done()
 
     @property
-    def is_cancelled(self):
+    def is_cancelled(self) -&gt; bool:
         return self._match.cancelled()
 
-    def matches_with(self, other: &#34;Search&#34;):
+    def matches_with(self, other: &#34;Search&#34;) -&gt; bool:
         &#34;&#34;&#34;
         Determine if this search is compatible with other given search according
         to both wishes.
@@ -1427,7 +1494,7 @@ on the current rate of ladder queues</p></div>
             f&#34;{&#39;, has_newbie)&#39; if self.has_newbie() else &#39;)&#39;}&#34;
         )
 
-    def get_original_searches(self) -&gt; List[&#34;Search&#34;]:
+    def get_original_searches(self) -&gt; list[&#34;Search&#34;]:
         &#34;&#34;&#34;
         Returns the searches of which this Search is comprised,
         as if it were a CombinedSearch of one
@@ -1440,7 +1507,7 @@ on the current rate of ladder queues</p></div>
 </ul>
 <h3>Instance variables</h3>
 <dl>
-<dt id="server.matchmaker.Search.average_rating"><code class="name">var <span class="ident">average_rating</span></code></dt>
+<dt id="server.matchmaker.Search.average_rating"><code class="name">var <span class="ident">average_rating</span> : float</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -1448,11 +1515,11 @@ on the current rate of ladder queues</p></div>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def average_rating(self):
-    return statistics.mean(mean - 3 * dev for mean, dev in self.raw_ratings)</code></pre>
+def average_rating(self) -&gt; float:
+    return statistics.mean(self.displayed_ratings)</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.Search.boundary_75"><code class="name">var <span class="ident">boundary_75</span></code></dt>
+<dt id="server.matchmaker.Search.boundary_75"><code class="name">var <span class="ident">boundary_75</span> : tuple[int, int]</code></dt>
 <dd>
 <div class="desc"><p>Achieves roughly 75% quality. FIXME - why is it MORE restrictive???</p></div>
 <details class="source">
@@ -1460,12 +1527,12 @@ def average_rating(self):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def boundary_75(self):
+def boundary_75(self) -&gt; tuple[int, int]:
     &#34;&#34;&#34; Achieves roughly 75% quality. FIXME - why is it MORE restrictive??? &#34;&#34;&#34;
     return self._nearby_rating_range(100)</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.Search.boundary_80"><code class="name">var <span class="ident">boundary_80</span></code></dt>
+<dt id="server.matchmaker.Search.boundary_80"><code class="name">var <span class="ident">boundary_80</span> : tuple[int, int]</code></dt>
 <dd>
 <div class="desc"><p>Achieves roughly 80% quality.</p></div>
 <details class="source">
@@ -1473,12 +1540,12 @@ def boundary_75(self):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def boundary_80(self):
+def boundary_80(self) -&gt; tuple[int, int]:
     &#34;&#34;&#34; Achieves roughly 80% quality. &#34;&#34;&#34;
     return self._nearby_rating_range(200)</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.Search.cumulative_rating"><code class="name">var <span class="ident">cumulative_rating</span></code></dt>
+<dt id="server.matchmaker.Search.cumulative_rating"><code class="name">var <span class="ident">cumulative_rating</span> : float</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -1486,8 +1553,25 @@ def boundary_80(self):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def cumulative_rating(self):
-    return sum(mean - 3 * dev for mean, dev in self.raw_ratings)</code></pre>
+def cumulative_rating(self) -&gt; float:
+    return sum(self.displayed_ratings)</code></pre>
+</details>
+</dd>
+<dt id="server.matchmaker.Search.displayed_ratings"><code class="name">var <span class="ident">displayed_ratings</span> : list[float]</code></dt>
+<dd>
+<div class="desc"><p>The client always displays mean - 3 * dev as a player's rating.
+So generally this is perceived as a player's true rating.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@property
+def displayed_ratings(self) -&gt; list[float]:
+    &#34;&#34;&#34;
+    The client always displays mean - 3 * dev as a player&#39;s rating.
+    So generally this is perceived as a player&#39;s true rating.
+    &#34;&#34;&#34;
+    return [rating.displayed() for rating in self.raw_ratings]</code></pre>
 </details>
 </dd>
 <dt id="server.matchmaker.Search.failed_matching_attempts"><code class="name">var <span class="ident">failed_matching_attempts</span> : int</code></dt>
@@ -1502,7 +1586,7 @@ def failed_matching_attempts(self) -&gt; int:
     return self._failed_matching_attempts</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.Search.is_cancelled"><code class="name">var <span class="ident">is_cancelled</span></code></dt>
+<dt id="server.matchmaker.Search.is_cancelled"><code class="name">var <span class="ident">is_cancelled</span> : bool</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -1510,11 +1594,11 @@ def failed_matching_attempts(self) -&gt; int:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def is_cancelled(self):
+def is_cancelled(self) -&gt; bool:
     return self._match.cancelled()</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.Search.is_matched"><code class="name">var <span class="ident">is_matched</span></code></dt>
+<dt id="server.matchmaker.Search.is_matched"><code class="name">var <span class="ident">is_matched</span> : bool</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -1522,7 +1606,7 @@ def is_cancelled(self):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def is_matched(self):
+def is_matched(self) -&gt; bool:
     return self._match.done() and not self._match.cancelled()</code></pre>
 </details>
 </dd>
@@ -1549,7 +1633,7 @@ def match_threshold(self) -&gt; float:
     return max(0.8 * self.quality_against_self - self.search_expansion, 0)</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.Search.ratings"><code class="name">var <span class="ident">ratings</span></code></dt>
+<dt id="server.matchmaker.Search.ratings"><code class="name">var <span class="ident">ratings</span> : list[<a title="server.rating.Rating" href="../rating.html#server.rating.Rating">Rating</a>]</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -1557,7 +1641,7 @@ def match_threshold(self) -&gt; float:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def ratings(self):
+def ratings(self) -&gt; list[Rating]:
     ratings = []
     for player, rating in zip(self.players, self.raw_ratings):
         # New players (less than config.NEWBIE_MIN_GAMES games) match against less skilled opponents
@@ -1567,7 +1651,7 @@ def ratings(self):
     return ratings</code></pre>
 </details>
 </dd>
-<dt id="server.matchmaker.Search.raw_ratings"><code class="name">var <span class="ident">raw_ratings</span></code></dt>
+<dt id="server.matchmaker.Search.raw_ratings"><code class="name">var <span class="ident">raw_ratings</span> : list[<a title="server.rating.Rating" href="../rating.html#server.rating.Rating">Rating</a>]</code></dt>
 <dd>
 <div class="desc"></div>
 <details class="source">
@@ -1575,7 +1659,7 @@ def ratings(self):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@property
-def raw_ratings(self):
+def raw_ratings(self) -&gt; list[Rating]:
     return [player.ratings[self.rating_type] for player in self.players]</code></pre>
 </details>
 </dd>
@@ -1584,7 +1668,8 @@ def raw_ratings(self):
 <div class="desc"><p>Defines how much to expand the search range of game quality due to waiting
 time.</p>
 <p>The threshold will expand linearly with every failed matching attempt
-until it reaches the specified MAX.</p></div>
+until it reaches the specified MAX.</p>
+<p>Top players use bigger values to make matching easier.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -1597,19 +1682,26 @@ def search_expansion(self) -&gt; float:
 
     The threshold will expand linearly with every failed matching attempt
     until it reaches the specified MAX.
-    &#34;&#34;&#34;
 
-    return min(
-        self._failed_matching_attempts * config.LADDER_SEARCH_EXPANSION_STEP,
-        config.LADDER_SEARCH_EXPANSION_MAX
-    )</code></pre>
+    Top players use bigger values to make matching easier.
+    &#34;&#34;&#34;
+    if self.has_top_player():
+        return min(
+            self._failed_matching_attempts * config.LADDER_TOP_PLAYER_SEARCH_EXPANSION_STEP,
+            config.LADDER_TOP_PLAYER_SEARCH_EXPANSION_MAX
+        )
+    else:
+        return min(
+            self._failed_matching_attempts * config.LADDER_SEARCH_EXPANSION_STEP,
+            config.LADDER_SEARCH_EXPANSION_MAX
+        )</code></pre>
 </details>
 </dd>
 </dl>
 <h3>Methods</h3>
 <dl>
 <dt id="server.matchmaker.Search.adjusted_rating"><code class="name flex">
-<span>def <span class="ident">adjusted_rating</span></span>(<span>self, player: <a title="server.players.Player" href="../players.html#server.players.Player">Player</a>)</span>
+<span>def <span class="ident">adjusted_rating</span></span>(<span>self, player: <a title="server.players.Player" href="../players.html#server.players.Player">Player</a>) ‑> <a title="server.rating.Rating" href="../rating.html#server.rating.Rating">Rating</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Returns an adjusted mean with a simple linear interpolation between current mean and a specified base mean</p></div>
@@ -1617,7 +1709,7 @@ def search_expansion(self) -&gt; float:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def adjusted_rating(self, player: Player):
+<pre><code class="python">def adjusted_rating(self, player: Player) -&gt; Rating:
     &#34;&#34;&#34;
     Returns an adjusted mean with a simple linear interpolation between current mean and a specified base mean
     &#34;&#34;&#34;
@@ -1625,7 +1717,7 @@ def search_expansion(self) -&gt; float:
     game_count = player.game_count[self.rating_type]
     adjusted_mean = ((config.NEWBIE_MIN_GAMES - game_count) * config.NEWBIE_BASE_MEAN
                      + game_count * mean) / config.NEWBIE_MIN_GAMES
-    return adjusted_mean, dev</code></pre>
+    return Rating(adjusted_mean, dev)</code></pre>
 </details>
 </dd>
 <dt id="server.matchmaker.Search.await_match"><code class="name flex">
@@ -1662,7 +1754,7 @@ def search_expansion(self) -&gt; float:
 </details>
 </dd>
 <dt id="server.matchmaker.Search.done"><code class="name flex">
-<span>def <span class="ident">done</span></span>(<span>self)</span>
+<span>def <span class="ident">done</span></span>(<span>self) ‑> bool</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -1670,12 +1762,12 @@ def search_expansion(self) -&gt; float:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def done(self):
+<pre><code class="python">def done(self) -&gt; bool:
     return self._match.done()</code></pre>
 </details>
 </dd>
 <dt id="server.matchmaker.Search.get_original_searches"><code class="name flex">
-<span>def <span class="ident">get_original_searches</span></span>(<span>self) ‑> List[<a title="server.matchmaker.search.Search" href="search.html#server.matchmaker.search.Search">Search</a>]</span>
+<span>def <span class="ident">get_original_searches</span></span>(<span>self) ‑> list['<a title="server.matchmaker.Search" href="#server.matchmaker.Search">Search</a>']</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Returns the searches of which this Search is comprised,
@@ -1684,12 +1776,26 @@ as if it were a CombinedSearch of one</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def get_original_searches(self) -&gt; List[&#34;Search&#34;]:
+<pre><code class="python">def get_original_searches(self) -&gt; list[&#34;Search&#34;]:
     &#34;&#34;&#34;
     Returns the searches of which this Search is comprised,
     as if it were a CombinedSearch of one
     &#34;&#34;&#34;
     return [self]</code></pre>
+</details>
+</dd>
+<dt id="server.matchmaker.Search.has_high_rated_player"><code class="name flex">
+<span>def <span class="ident">has_high_rated_player</span></span>(<span>self) ‑> bool</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def has_high_rated_player(self) -&gt; bool:
+    max_rating = max(self.displayed_ratings)
+    return max_rating &gt;= config.HIGH_RATED_PLAYER_MIN_RATING</code></pre>
 </details>
 </dd>
 <dt id="server.matchmaker.Search.has_newbie"><code class="name flex">
@@ -1719,7 +1825,7 @@ as if it were a CombinedSearch of one</p></div>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def has_top_player(self) -&gt; bool:
-    max_rating = max(map(lambda rating_tuple: rating_tuple[0], self.ratings))
+    max_rating = max(self.displayed_ratings)
     return max_rating &gt;= config.TOP_PLAYER_MIN_RATING</code></pre>
 </details>
 </dd>
@@ -1781,7 +1887,7 @@ as if it were a CombinedSearch of one</p></div>
 </details>
 </dd>
 <dt id="server.matchmaker.Search.matches_with"><code class="name flex">
-<span>def <span class="ident">matches_with</span></span>(<span>self, other: <a title="server.matchmaker.Search" href="#server.matchmaker.Search">Search</a>)</span>
+<span>def <span class="ident">matches_with</span></span>(<span>self, other: <a title="server.matchmaker.Search" href="#server.matchmaker.Search">Search</a>) ‑> bool</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Determine if this search is compatible with other given search according
@@ -1790,7 +1896,7 @@ to both wishes.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def matches_with(self, other: &#34;Search&#34;):
+<pre><code class="python">def matches_with(self, other: &#34;Search&#34;) -&gt; bool:
     &#34;&#34;&#34;
     Determine if this search is compatible with other given search according
     to both wishes.
@@ -1828,10 +1934,10 @@ to both wishes.</p></div>
     assert all(other.raw_ratings)
     assert other.players
 
-    team1 = [Rating(*rating) for rating in self.ratings]
-    team2 = [Rating(*rating) for rating in other.ratings]
+    team1 = [trueskill.Rating(*rating) for rating in self.ratings]
+    team2 = [trueskill.Rating(*rating) for rating in other.ratings]
 
-    return quality([team1, team2])</code></pre>
+    return trueskill.quality([team1, team2])</code></pre>
 </details>
 </dd>
 <dt id="server.matchmaker.Search.register_failed_matching_attempt"><code class="name flex">
@@ -1908,6 +2014,7 @@ and increase internal counter by one.</p></div>
 <ul class="">
 <li><code><a title="server.matchmaker.MatchmakerQueue.add_map_pool" href="#server.matchmaker.MatchmakerQueue.add_map_pool">add_map_pool</a></code></li>
 <li><code><a title="server.matchmaker.MatchmakerQueue.find_matches" href="#server.matchmaker.MatchmakerQueue.find_matches">find_matches</a></code></li>
+<li><code><a title="server.matchmaker.MatchmakerQueue.get_game_options" href="#server.matchmaker.MatchmakerQueue.get_game_options">get_game_options</a></code></li>
 <li><code><a title="server.matchmaker.MatchmakerQueue.get_map_pool_for_rating" href="#server.matchmaker.MatchmakerQueue.get_map_pool_for_rating">get_map_pool_for_rating</a></code></li>
 <li><code><a title="server.matchmaker.MatchmakerQueue.initialize" href="#server.matchmaker.MatchmakerQueue.initialize">initialize</a></code></li>
 <li><code><a title="server.matchmaker.MatchmakerQueue.match" href="#server.matchmaker.MatchmakerQueue.match">match</a></code></li>
@@ -1936,9 +2043,11 @@ and increase internal counter by one.</p></div>
 <li><code><a title="server.matchmaker.Search.boundary_80" href="#server.matchmaker.Search.boundary_80">boundary_80</a></code></li>
 <li><code><a title="server.matchmaker.Search.cancel" href="#server.matchmaker.Search.cancel">cancel</a></code></li>
 <li><code><a title="server.matchmaker.Search.cumulative_rating" href="#server.matchmaker.Search.cumulative_rating">cumulative_rating</a></code></li>
+<li><code><a title="server.matchmaker.Search.displayed_ratings" href="#server.matchmaker.Search.displayed_ratings">displayed_ratings</a></code></li>
 <li><code><a title="server.matchmaker.Search.done" href="#server.matchmaker.Search.done">done</a></code></li>
 <li><code><a title="server.matchmaker.Search.failed_matching_attempts" href="#server.matchmaker.Search.failed_matching_attempts">failed_matching_attempts</a></code></li>
 <li><code><a title="server.matchmaker.Search.get_original_searches" href="#server.matchmaker.Search.get_original_searches">get_original_searches</a></code></li>
+<li><code><a title="server.matchmaker.Search.has_high_rated_player" href="#server.matchmaker.Search.has_high_rated_player">has_high_rated_player</a></code></li>
 <li><code><a title="server.matchmaker.Search.has_newbie" href="#server.matchmaker.Search.has_newbie">has_newbie</a></code></li>
 <li><code><a title="server.matchmaker.Search.has_top_player" href="#server.matchmaker.Search.has_top_player">has_top_player</a></code></li>
 <li><code><a title="server.matchmaker.Search.is_cancelled" href="#server.matchmaker.Search.is_cancelled">is_cancelled</a></code></li>
